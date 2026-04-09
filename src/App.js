@@ -150,7 +150,7 @@ function App() {
   };
 
   const fmt = (n) => {
-    return '¥' + Math.round(n).toLocaleString('en-IN');
+    return '₹' + Math.round(n).toLocaleString('en-IN');
   };
 
   const calculateMonthlyBalances = () => {
