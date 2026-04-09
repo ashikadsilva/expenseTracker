@@ -1,0 +1,161 @@
+import React, { useState, useEffect } from 'react';
+
+const TransactionModal = ({ 
+  show, 
+  onClose, 
+  onSave, 
+  editTxnId, 
+  transactions, 
+  categories, 
+  currentTxnType, 
+  setCurrentTxnType, 
+  getCatNames 
+}) => {
+  const [formData, setFormData] = useState({
+    date: '',
+    amount: '',
+    description: '',
+    category: '',
+    account: 'Canara'
+  });
+
+  useEffect(() => {
+    if (editTxnId) {
+      const txn = transactions.find(t => t.id === editTxnId);
+      if (txn) {
+        setCurrentTxnType(txn.type);
+        setFormData({
+          date: txn.date,
+          amount: txn.amount,
+          description: txn.desc || '',
+          category: txn.cat,
+          account: txn.account
+        });
+      }
+    } else {
+      setCurrentTxnType('expense');
+      setFormData({
+        date: new Date().toISOString().split('T')[0],
+        amount: '',
+        description: '',
+        category: '',
+        account: 'Canara'
+      });
+    }
+  }, [editTxnId, transactions, setCurrentTxnType]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.date || !formData.amount || isNaN(parseFloat(formData.amount))) {
+      alert('Fill date and amount.');
+      return;
+    }
+    
+    onSave({
+      date: formData.date,
+      amount: parseFloat(formData.amount),
+      desc: formData.description,
+      cat: formData.category,
+      account: formData.account
+    });
+  };
+
+  const availableCategories = getCatNames(currentTxnType);
+
+  if (!show) return null;
+
+  return (
+    <div className="modal-backdrop open" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">
+          {editTxnId ? 'Edit transaction' : 'Add transaction'}
+        </div>
+        
+        <div className="type-toggle">
+          <button 
+            className={`type-btn ${currentTxnType === 'expense' ? 'exp-on' : ''}`}
+            onClick={() => setCurrentTxnType('expense')}
+          >
+            Expense
+          </button>
+          <button 
+            className={`type-btn ${currentTxnType === 'income' ? 'inc-on' : ''}`}
+            onClick={() => setCurrentTxnType('income')}
+          >
+            Income
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-row">
+            <label className="form-label">Date</label>
+            <input 
+              type="date" 
+              value={formData.date}
+              onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+              required
+            />
+          </div>
+          
+          <div className="form-row">
+            <label className="form-label">Amount (₹)</label>
+            <input 
+              type="number" 
+              placeholder="0" 
+              min="0"
+              step="0.01"
+              value={formData.amount}
+              onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+              required
+            />
+          </div>
+          
+          <div className="form-row">
+            <label className="form-label">Description</label>
+            <input 
+              type="text" 
+              placeholder="e.g. Zomato"
+              value={formData.description}
+              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+            />
+          </div>
+          
+          <div className="form-row">
+            <label className="form-label">Category</label>
+            <select 
+              value={formData.category}
+              onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+              required
+            >
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="form-row">
+            <label className="form-label">Account</label>
+            <select 
+              value={formData.account}
+              onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
+            >
+              <option value="Canara">Canara Bank</option>
+              <option value="Union">Union Bank</option>
+            </select>
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary">
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default TransactionModal;
