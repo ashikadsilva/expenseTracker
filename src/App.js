@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import './styles.css';
+import ManualEntryModal from './components/ManualEntryModal';
+import { loadData, saveData } from './utils/supabase';
 import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import CategoriesView from './components/CategoriesView';
@@ -90,37 +93,33 @@ function App() {
   const [currentTxnType, setCurrentTxnType] = useState('expense');
   const [importResult, setImportResult] = useState('');
   const fileInputRef = useRef(null);
+  const [budgetData, setBudgetData] = useState([]);
+  const [showAddEntryModal, setShowAddEntryModal] = useState(false);
 
-  // Load data from localStorage on mount
+  // Load data from cloud/localStorage on mount
   useEffect(() => {
-    const savedCategories = localStorage.getItem('expenseTrackerCategories');
-    const savedTransactions = localStorage.getItem('expenseTrackerTransactions');
-    
-    if (savedCategories) {
+    const initializeData = async () => {
       try {
-        setCategories(JSON.parse(savedCategories));
-      } catch (e) {
-        console.error('Error loading categories:', e);
+        const data = await loadData();
+        setCategories(data.categories);
+        setTransactions(data.transactions);
+        setBudgetData(data.budgetData);
+      } catch (error) {
+        console.error('Error initializing data:', error);
+        // Fallback to empty state
+        setCategories({ expense: [], income: [] });
+        setTransactions([]);
+        setBudgetData([]);
       }
-    }
+    };
     
-    if (savedTransactions) {
-      try {
-        setTransactions(JSON.parse(savedTransactions));
-      } catch (e) {
-        console.error('Error loading transactions:', e);
-      }
-    }
+    initializeData();
   }, []);
 
-  // Save data to localStorage whenever it changes
+  // Save data to cloud and localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('expenseTrackerCategories', JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('expenseTrackerTransactions', JSON.stringify(transactions));
-  }, [transactions]);
+    saveData(transactions, categories, budgetData);
+  }, [transactions, categories, budgetData]);
 
   const getColor = (cat) => {
     const all = [...categories.expense, ...categories.income];
@@ -192,6 +191,128 @@ function App() {
   const getBalanceForMonth = (month) => {
     const monthlyData = calculateMonthlyBalances();
     return monthlyData[month] || { startBalance: 0, endBalance: 0, income: 0, expenses: 0 };
+  };
+
+  // Budget data management functions
+  const addManualEntry = (entry) => {
+    const { date, amount, category, description, type, account } = entry;
+    const dateObj = new Date(date);
+    const month = dateObj.toLocaleString('default', { month: 'short' });
+    const year = dateObj.getFullYear();
+    const monthYearKey = `${month} ${year}`;
+    
+    // Find or create budget data for this month/account
+    let budgetItem = budgetData.find(item => 
+      item.month === month && 
+      item.year === year.toString() && 
+      item.account === account
+    );
+    
+    if (!budgetItem) {
+      // Create new budget item
+      const prevBalance = getPreviousMonthBalance(month, year, account);
+      budgetItem = {
+        sheet: `${account} ${month} Summary`,
+        account,
+        month,
+        year: year.toString(),
+        starting_balance: prevBalance,
+        start_balance: prevBalance,
+        end_balance: prevBalance,
+        saved_this_month: 0,
+        savings_label: 'No change',
+        savings_pct: 0,
+        total_expenses_actual: 0,
+        total_income_actual: 0,
+        expense_categories: [],
+        income_categories: []
+      };
+      setBudgetData(prev => [...prev, budgetItem]);
+    }
+    
+    // Update the budget item
+    if (type === 'expense') {
+      budgetItem.total_expenses_actual += amount;
+      budgetItem.end_balance = budgetItem.start_balance - budgetItem.total_expenses_actual + budgetItem.total_income_actual;
+      
+      // Update expense categories
+      const existingCat = budgetItem.expense_categories.find(cat => cat.category === category);
+      if (existingCat) {
+        existingCat.actual += amount;
+      } else {
+        budgetItem.expense_categories.push({
+          category,
+          planned: 0,
+          actual: amount,
+          diff: amount
+        });
+      }
+    } else {
+      budgetItem.total_income_actual += amount;
+      budgetItem.end_balance = budgetItem.start_balance - budgetItem.total_expenses_actual + budgetItem.total_income_actual;
+      
+      // Update income categories
+      const existingCat = budgetItem.income_categories.find(cat => cat.category === category);
+      if (existingCat) {
+        existingCat.actual += amount;
+      } else {
+        budgetItem.income_categories.push({
+          category,
+          planned: 0,
+          actual: amount,
+          diff: amount
+        });
+      }
+    }
+    
+    // Update savings calculations
+    budgetItem.saved_this_month = budgetItem.end_balance - budgetItem.start_balance;
+    budgetItem.savings_label = budgetItem.saved_this_month >= 0 ? 'Increase in total savings' : 'Decrease in total savings';
+    budgetItem.savings_pct = budgetItem.start_balance !== 0 ? (budgetItem.saved_this_month / budgetItem.start_balance * 100) : 0;
+    
+    // Update budget data state
+    setBudgetData(prev => prev.map(item => 
+      item.sheet === budgetItem.sheet ? budgetItem : item
+    ));
+    
+    // Also add to transactions for consistency
+    const newTransaction = {
+      id: Math.max(...transactions.map(t => t.id), 0) + 1,
+      date,
+      amount,
+      desc: description,
+      cat: category,
+      account,
+      type
+    };
+    
+    setTransactions(prev => [...prev, newTransaction]);
+  };
+
+  const getPreviousMonthBalance = (month, year, account) => {
+    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthIndex = monthOrder.indexOf(month);
+    
+    if (monthIndex === 0 && year === 2025) {
+      return 0; // Starting point
+    }
+    
+    let prevMonth, prevYear;
+    if (monthIndex === 0) {
+      prevMonth = 'Dec';
+      prevYear = year - 1;
+    } else {
+      prevMonth = monthOrder[monthIndex - 1];
+      prevYear = year;
+    }
+    
+    const prevBudgetItem = budgetData.find(item => 
+      item.month === prevMonth && 
+      item.year === prevYear.toString() && 
+      item.account === account
+    );
+    
+    return prevBudgetItem ? prevBudgetItem.end_balance : 0;
   };
 
   const openTxnModal = (id = null) => {
@@ -320,67 +441,271 @@ function App() {
           let imported = 0, skipped = 0;
           const existingKeys = new Set(transactions.map(t => `${t.date}_${t.amount}_${t.account}_${t.type}`));
           
-          wb.SheetNames.forEach(sheetName => {
-            if (!sheetName.toLowerCase().includes('transaction')) return;
+          // Dynamic Excel Data Analysis
+          const analyzeExcelData = (wb) => {
+            const analysis = {
+              sheets: {},
+              summary: {
+                totalSheets: wb.SheetNames.length,
+                transactionSheets: 0,
+                balanceSheets: 0,
+                startingBalance: 0,
+                totalIncome: 0,
+                totalExpenses: 0,
+                endingBalance: 0
+              }
+            };
             
-            const isCanara = sheetName.toLowerCase().includes('canara');
-            const isUnion = sheetName.toLowerCase().includes('union');
-            const account = isCanara ? 'Canara' : isUnion ? 'Union' : 'Unknown';
-            const ws = wb.Sheets[sheetName];
-            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-            
-            rows.forEach((row, i) => {
-              if (i < 4) return;
+            wb.SheetNames.forEach(sheetName => {
+              const ws = wb.Sheets[sheetName];
+              const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
               
-              const tryImport = (dateVal, amtVal, descVal, catVal, type) => {
-                if (!dateVal || !amtVal || isNaN(parseFloat(amtVal))) return;
+              const sheetAnalysis = {
+                name: sheetName,
+                type: 'unknown',
+                rowCount: rows.length,
+                columns: [],
+                hasDates: false,
+                hasAmounts: false,
+                hasBalance: false,
+                startingBalance: null,
+                endingBalance: null,
+                transactions: []
+              };
+              
+              // Analyze first few rows to detect column types
+              if (rows.length > 0) {
+                const headerRow = rows[0] || [];
+                const sampleRows = rows.slice(1, Math.min(5, rows.length));
                 
-                let dateStr = '';
-                if (dateVal instanceof Date) {
-                  const y = dateVal.getFullYear(), m = String(dateVal.getMonth() + 1).padStart(2, '0'), d = String(dateVal.getDate()).padStart(2, '0');
-                  if (y < 2020 || y > 2030) return;
-                  dateStr = `${y}-${m}-${d}`;
-                } else if (typeof dateVal === 'string' && dateVal.includes('-')) {
-                  dateStr = dateVal.split(' ')[0];
-                } else return;
+                // Detect column types dynamically
+                headerRow.forEach((header, colIndex) => {
+                  const colName = String(header || '').toLowerCase();
+                  const colData = {
+                    index: colIndex,
+                    name: header,
+                    type: 'unknown',
+                    sampleValues: []
+                  };
+                  
+                  // Check sample values in this column
+                  sampleRows.forEach(row => {
+                    const value = row && row[colIndex];
+                    if (value != null && value !== '') {
+                      colData.sampleValues.push(value);
+                      
+                      // Detect column type
+                      if (value instanceof Date || (typeof value === 'string' && value.match(/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/))) {
+                        colData.type = 'date';
+                        sheetAnalysis.hasDates = true;
+                      } else if (!isNaN(parseFloat(value)) && parseFloat(value) !== 0) {
+                        colData.type = 'amount';
+                        sheetAnalysis.hasAmounts = true;
+                      } else if (typeof value === 'string' && value.toLowerCase().includes('balance')) {
+                        colData.type = 'balance';
+                        sheetAnalysis.hasBalance = true;
+                      } else if (typeof value === 'string') {
+                        colData.type = 'text';
+                      }
+                    }
+                  });
+                  
+                  sheetAnalysis.columns.push(colData);
+                });
                 
-                const amount = Math.round(parseFloat(amtVal) * 100) / 100;
-                const cat = String(catVal || 'Other').trim() || 'Other';
-                const desc = String(descVal || '').trim();
-                const key = `${dateStr}_${amount}_${account}_${type}`;
+                // Determine sheet type
+                const sheetNameLower = sheetName.toLowerCase();
+                if (sheetNameLower.includes('transaction') || sheetNameLower.includes('expense') || sheetNameLower.includes('income')) {
+                  sheetAnalysis.type = 'transactions';
+                  analysis.summary.transactionSheets++;
+                } else if (sheetNameLower.includes('balance') || sheetNameLower.includes('summary') || sheetNameLower.includes('account')) {
+                  sheetAnalysis.type = 'balance';
+                  analysis.summary.balanceSheets++;
+                }
                 
-                if (existingKeys.has(key)) { skipped++; return; }
+                // Extract transactions from transaction sheets
+                if (sheetAnalysis.type === 'transactions') {
+                  rows.forEach((row, i) => {
+                    if (i === 0 || !row || row.length === 0) return; // Skip header and empty rows
+                    
+                    const transaction = extractTransactionFromRow(row, sheetAnalysis.columns, sheetName);
+                    if (transaction) {
+                      sheetAnalysis.transactions.push(transaction);
+                    }
+                  });
+                }
+                
+                // Extract balance information from balance sheets
+                if (sheetAnalysis.type === 'balance') {
+                  rows.forEach((row, i) => {
+                    if (!row || row.length === 0) return;
+                    
+                    row.forEach((cell, colIndex) => {
+                      const col = sheetAnalysis.columns[colIndex];
+                      if (!col) return;
+                      
+                      const cellStr = String(cell || '').toLowerCase();
+                      const cellValue = parseFloat(cell);
+                      
+                      if (!isNaN(cellValue)) {
+                        if (cellStr.includes('opening') || cellStr.includes('starting') || cellStr.includes('beginning')) {
+                          sheetAnalysis.startingBalance = cellValue;
+                        } else if (cellStr.includes('closing') || cellStr.includes('ending') || cellStr.includes('final')) {
+                          sheetAnalysis.endingBalance = cellValue;
+                        } else if (col.type === 'amount' && !cellStr.includes('balance')) {
+                          // This might be income/expense data
+                          if (cellValue > 0) {
+                            analysis.summary.totalIncome += cellValue;
+                          } else {
+                            analysis.summary.totalExpenses += Math.abs(cellValue);
+                          }
+                        }
+                      }
+                    });
+                  });
+                }
+              }
+              
+              analysis.sheets[sheetName] = sheetAnalysis;
+            });
+            
+            return analysis;
+          };
+          
+          const extractTransactionFromRow = (row, columns, sheetName) => {
+            let dateCol, amountCol, descCol, catCol, typeCol;
+            
+            // Find columns by type detection
+            columns.forEach(col => {
+              if (col.type === 'date') dateCol = col.index;
+              if (col.type === 'amount') amountCol = col.index;
+              if (col.type === 'text') {
+                const colName = String(col.name || '').toLowerCase();
+                if (colName.includes('desc') || colName.includes('remark') || colName.includes('particular')) {
+                  descCol = col.index;
+                } else if (colName.includes('cat') || colName.includes('head') || colName.includes('type')) {
+                  catCol = col.index;
+                }
+              }
+            });
+            
+            // Extract and validate data
+            const dateVal = dateCol !== undefined ? row[dateCol] : null;
+            const amountVal = amountCol !== undefined ? row[amountCol] : null;
+            const descVal = descCol !== undefined ? row[descCol] : null;
+            const catVal = catCol !== undefined ? row[catCol] : null;
+            
+            if (!dateVal || !amountVal || isNaN(parseFloat(amountVal))) return null;
+            
+            // Format date
+            let dateStr = '';
+            if (dateVal instanceof Date) {
+              const y = dateVal.getFullYear(), m = String(dateVal.getMonth() + 1).padStart(2, '0'), d = String(dateVal.getDate()).padStart(2, '0');
+              if (y < 2020 || y > 2030) return null;
+              dateStr = `${y}-${m}-${d}`;
+            } else if (typeof dateVal === 'string' && dateVal.includes('-')) {
+              dateStr = dateVal.split(' ')[0];
+            } else return null;
+            
+            const amount = Math.round(parseFloat(amountVal) * 100) / 100;
+            const type = amount < 0 ? 'expense' : 'income';
+            const absAmount = Math.abs(amount);
+            
+            // Determine account from sheet name
+            let account = 'Unknown';
+            if (sheetName.toLowerCase().includes('canara')) account = 'Canara';
+            else if (sheetName.toLowerCase().includes('union')) account = 'Union';
+            
+            const cat = String(catVal || 'Other').trim() || 'Other';
+            const desc = String(descVal || '').trim();
+            
+            return { date: dateStr, amount: absAmount, desc, cat, account, type };
+          };
+          
+          // Analyze the Excel file
+          const analysis = analyzeExcelData(wb);
+          
+          // Import transactions from all transaction sheets
+          wb.SheetNames.forEach(sheetName => {
+            const sheetAnalysis = analysis.sheets[sheetName];
+            if (sheetAnalysis.type === 'transactions') {
+              sheetAnalysis.transactions.forEach(transaction => {
+                const key = `${transaction.date}_${transaction.amount}_${transaction.account}_${transaction.type}`;
+                
+                if (existingKeys.has(key)) { 
+                  skipped++; 
+                  return; 
+                }
                 existingKeys.add(key);
                 
                 const newId = Math.max(...transactions.map(t => t.id), 0) + 1;
-                setTransactions(prev => [...prev, { id: newId, date: dateStr, amount, desc, cat, account, type }]);
+                setTransactions(prev => [...prev, { id: newId, ...transaction }]);
+                imported++;
                 
-                const catList = categories[type];
-                if (!catList.some(c => c.name === cat)) {
-                  const col = PALETTE[catList.length % PALETTE.length];
+                // Auto-add categories if they don't exist
+                if (!categories[transaction.type].some(c => c.name === transaction.cat)) {
                   setCategories(prev => ({
                     ...prev,
-                    [type]: [...prev[type], { name: cat, color: col }]
+                    [transaction.type]: [...prev[transaction.type], { 
+                      name: transaction.cat, 
+                      color: '#888780' // Default color
+                    }]
                   }));
                 }
-                imported++;
-              };
-              
-              tryImport(row[1], row[2], row[3], row[4], 'expense');
-              tryImport(row[6], row[7], row[8], row[9], 'income');
-            });
+              });
+            }
           });
           
-          setImportResult(`Imported ${imported} new transactions, skipped ${skipped} duplicates from <strong>${file.name}</strong>.`);
-          setActiveTab('dashboard');
+          // Update balance information if found
+          if (analysis.summary.balanceSheets > 0) {
+            let totalStartingBalance = 0;
+            let totalEndingBalance = 0;
+            
+            Object.values(analysis.sheets).forEach(sheet => {
+              if (sheet.type === 'balance') {
+                if (sheet.startingBalance !== null) totalStartingBalance += sheet.startingBalance;
+                if (sheet.endingBalance !== null) totalEndingBalance += sheet.endingBalance;
+              }
+            });
+            
+            // Store balance information in localStorage or state
+            const balanceInfo = {
+              startingBalance: totalStartingBalance,
+              endingBalance: totalEndingBalance,
+              totalIncome: analysis.summary.totalIncome,
+              totalExpenses: analysis.summary.totalExpenses,
+              lastUpdated: new Date().toISOString()
+            };
+            
+            localStorage.setItem('excelBalanceInfo', JSON.stringify(balanceInfo));
+          }
+          
+          // Generate detailed import result
+          const resultMessage = `
+Import Analysis Complete:
+- Total Sheets: ${analysis.summary.totalSheets}
+- Transaction Sheets: ${analysis.summary.transactionSheets}
+- Balance Sheets: ${analysis.summary.balanceSheets}
+- New Transactions Imported: ${imported}
+- Duplicates Skipped: ${skipped}
+${analysis.summary.balanceSheets > 0 ? `
+Balance Information Found:
+- Starting Balance: ${fmt(analysis.summary.startingBalance || 0)}
+- Total Income: ${fmt(analysis.summary.totalIncome)}
+- Total Expenses: ${fmt(analysis.summary.totalExpenses)}
+- Ending Balance: ${fmt(analysis.summary.endingBalance || 0)}` : ''}
+          `.trim();
+          
+          setImportResult(resultMessage);
+          
         } catch (err) {
-          setImportResult(`Error reading file: ${err.message}`);
+          setImportResult('Error reading Excel file: ' + err.message);
         }
       };
       
       reader.readAsArrayBuffer(file);
     } catch (err) {
-      setImportResult(`Error loading XLSX library: ${err.message}`);
+      setImportResult('Error loading Excel file: ' + err.message);
     }
     
     event.target.value = '';
@@ -396,7 +721,7 @@ function App() {
         <div className="topbar-right">
           <button className="btn btn-success" onClick={triggerUpload}>Import XLSX</button>
           <button className="btn btn-secondary" onClick={exportCSV}>Export CSV</button>
-          <button className="btn btn-primary" onClick={() => openTxnModal()}>+ Add expense</button>
+          <button className="btn btn-primary" onClick={() => setShowAddEntryModal(true)}>+ Add Entry</button>
         </div>
       </div>
       <input 
@@ -493,6 +818,15 @@ function App() {
           selectedColor={selectedColor}
           setSelectedColor={setSelectedColor}
           palette={PALETTE}
+        />
+      )}
+
+      {showAddEntryModal && (
+        <ManualEntryModal
+          show={showAddEntryModal}
+          onClose={() => setShowAddEntryModal(false)}
+          onSubmit={addManualEntry}
+          categories={categories}
         />
       )}
     </div>
