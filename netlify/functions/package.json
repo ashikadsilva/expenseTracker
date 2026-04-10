@@ -1,0 +1,9 @@
+{
+  "name": "expense-tracker-functions",
+  "version": "1.0.0",
+  "description": "Netlify Functions for Expense Tracker",
+  "main": "save-data.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0"
+  }
+}
