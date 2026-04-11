@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
+import { ACCOUNTS } from '../constants/accounts';
 
-const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
+const ManualEntryModal = ({ show, onClose, onSubmit, categories, onAddCategory }) => {
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     amount: '',
     category: '',
     description: '',
     type: 'expense',
-    account: 'Canara'
+    account: 'Canara',
+    referenceNumber: '',
+    transactionType: 'debit',
+    paymentMethod: 'cash'
   });
 
   const getAvailableCategories = () => {
@@ -18,17 +22,11 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.amount || !formData.category) return;
-    
-    let finalCategory = formData.category;
-    if (formData.category === '__new__') {
-      finalCategory = formData.newCategory;
-    }
-    
-    if (!finalCategory) return;
-    
+    if (formData.category === '__new__') return;
+
     onSubmit({
       ...formData,
-      category: finalCategory,
+      category: formData.category,
       amount: parseFloat(formData.amount)
     });
     
@@ -39,7 +37,10 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
       category: '',
       description: '',
       type: 'expense',
-      account: 'Canara'
+      account: 'Canara',
+      referenceNumber: '',
+      transactionType: 'debit',
+      paymentMethod: 'cash'
     });
     
     onClose();
@@ -55,123 +56,57 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'category' && value === '__new__') {
+      onAddCategory(formData.type);
+      setFormData((prev) => ({ ...prev, category: '' }));
+      return;
+    }
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   if (!show) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000
-    }}>
-      <div style={{
-        backgroundColor: 'var(--color-background-primary)',
-        borderRadius: '12px',
-        padding: '1.5rem',
-        width: '90%',
-        maxWidth: '400px',
-        border: '0.5px solid var(--color-border-tertiary)'
-      }}>
-        <div style={{
-          fontSize: '16px',
-          fontWeight: '500',
-          marginBottom: '1rem',
-          color: 'var(--color-text-primary)'
-        }}>
+    <div className="modal-backdrop open" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: '400px' }}>
+        <div className="modal-title">
           Add Manual Entry
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Type
-            </label>
-            <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="form-row">
+            <label className="form-label">Type</label>
+            <div className="type-toggle">
               <button
                 type="button"
                 onClick={() => handleTypeChange('expense')}
-                style={{
-                  flex: 1,
-                  padding: '8px',
-                  border: formData.type === 'expense' ? '0.5px solid #A32D2D' : '0.5px solid var(--color-border-secondary)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  backgroundColor: formData.type === 'expense' ? '#FCEBEB' : 'var(--color-background-primary)',
-                  color: formData.type === 'expense' ? '#A32D2D' : 'var(--color-text-primary)'
-                }}
+                className={`type-btn ${formData.type === 'expense' ? 'exp-on' : ''}`}
               >
                 Expense
               </button>
               <button
                 type="button"
                 onClick={() => handleTypeChange('income')}
-                style={{
-                  flex: 1,
-                  padding: '8px',
-                  border: formData.type === 'income' ? '0.5px solid #3B6D11' : '0.5px solid var(--color-border-secondary)',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  backgroundColor: formData.type === 'income' ? '#EAF3DE' : 'var(--color-background-primary)',
-                  color: formData.type === 'income' ? '#3B6D11' : 'var(--color-text-primary)'
-                }}
+                className={`type-btn ${formData.type === 'income' ? 'inc-on' : ''}`}
               >
                 Income
               </button>
             </div>
           </div>
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Date
-            </label>
+          <div className="form-row">
+            <label className="form-label">Date</label>
             <input
               type="date"
               name="date"
               value={formData.date}
               onChange={handleChange}
               required
-              style={{
-                width: '100%',
-                backgroundColor: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                color: 'var(--color-text-primary)'
-              }}
             />
           </div>
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Amount (₹)
-            </label>
+          <div className="form-row">
+            <label className="form-label">Amount (¥)</label>
             <input
               type="number"
               name="amount"
@@ -181,42 +116,16 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
               min="0"
               step="0.01"
               required
-              style={{
-                width: '100%',
-                backgroundColor: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                color: 'var(--color-text-primary)'
-              }}
             />
           </div>
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Category
-            </label>
+          <div className="form-row">
+            <label className="form-label">Category</label>
             <select
               name="category"
               value={formData.category}
               onChange={handleChange}
               required
-              style={{
-                width: '100%',
-                backgroundColor: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                color: 'var(--color-text-primary)',
-                cursor: 'pointer'
-              }}
             >
               <option value="">Select category</option>
               {getAvailableCategories().map(cat => (
@@ -224,112 +133,69 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories }) => {
               ))}
               <option value="__new__">+ Create new category</option>
             </select>
-            {formData.category === '__new__' && (
-              <input
-                type="text"
-                name="newCategory"
-                value={formData.newCategory || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, newCategory: e.target.value }))}
-                placeholder="Enter new category name"
-                required
-                style={{
-                  width: '100%',
-                  backgroundColor: 'var(--color-background-primary)',
-                  border: '0.5px solid var(--color-border-secondary)',
-                  borderRadius: '8px',
-                  padding: '8px 12px',
-                  fontSize: '13px',
-                  color: 'var(--color-text-primary)',
-                  marginTop: '8px'
-                }}
-              />
-            )}
           </div>
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Description
-            </label>
+          <div className="form-row">
+            <label className="form-label">Transaction Type</label>
+            <select
+              name="transactionType"
+              value={formData.transactionType}
+              onChange={handleChange}
+            >
+              <option value="debit">Debit</option>
+              <option value="credit">Credit</option>
+              <option value="transfer">Transfer</option>
+              <option value="withdrawal">ATM Withdrawal</option>
+              <option value="deposit">Deposit</option>
+            </select>
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Payment Method</label>
+            <select
+              name="paymentMethod"
+              value={formData.paymentMethod}
+              onChange={handleChange}
+            >
+              <option value="cash">Cash</option>
+              <option value="card">Debit/Credit Card</option>
+              <option value="upi">UPI</option>
+              <option value="netbanking">Net Banking</option>
+              <option value="cheque">Cheque</option>
+              <option value="wallet">Digital Wallet</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Description</label>
             <input
               type="text"
               name="description"
               value={formData.description}
               onChange={handleChange}
               placeholder="Enter description"
-              style={{
-                width: '100%',
-                backgroundColor: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                color: 'var(--color-text-primary)'
-              }}
             />
           </div>
 
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{
-              fontSize: '12px',
-              color: 'var(--color-text-secondary)',
-              marginBottom: '4px',
-              display: 'block'
-            }}>
-              Account
-            </label>
+          <div className="form-row">
+            <label className="form-label">Account</label>
             <select
               name="account"
               value={formData.account}
               onChange={handleChange}
-              style={{
-                width: '100%',
-                backgroundColor: 'var(--color-background-primary)',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                fontSize: '13px',
-                color: 'var(--color-text-primary)',
-                cursor: 'pointer'
-              }}
             >
-              <option value="Canara">Canara Bank</option>
-              <option value="Union">Union Bank</option>
+              {ACCOUNTS.map((a) => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
             </select>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                padding: '8px 16px',
-                border: '0.5px solid var(--color-border-secondary)',
-                borderRadius: '8px',
-                fontSize: '12px',
-                cursor: 'pointer',
-                backgroundColor: 'var(--color-background-primary)',
-                color: 'var(--color-text-secondary)'
-              }}
-            >
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button
-              type="submit"
-              style={{
-                padding: '8px 16px',
-                border: '0.5px solid #185FA5',
-                borderRadius: '8px',
-                fontSize: '12px',
-                cursor: 'pointer',
-                backgroundColor: '#185FA5',
-                color: 'white'
-              }}
-            >
+            <button type="submit" className="btn btn-primary">
               Add Entry
             </button>
           </div>

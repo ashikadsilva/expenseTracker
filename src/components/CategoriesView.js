@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ACCOUNTS } from '../constants/accounts';
 
 const CategoriesView = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths }) => {
   const [filters, setFilters] = useState({ month: 'all', account: 'all' });
@@ -27,9 +28,10 @@ const CategoriesView = ({ transactions, categories, getColor, fmt, getFiltered, 
           value={filters.account}
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
-          <option value="all">Both accounts</option>
-          <option value="Canara">Canara Bank</option>
-          <option value="Union">Union Bank</option>
+          <option value="all">All accounts</option>
+          {ACCOUNTS.map((a) => (
+            <option key={a.value} value={a.value}>{a.label}</option>
+          ))}
         </select>
       </div>
       

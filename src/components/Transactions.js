@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ACCOUNTS } from '../constants/accounts';
 
 const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths, getCatNames, openTxnModal, deleteTxn, getBalanceForMonth }) => {
   const [filters, setFilters] = useState({ 
@@ -11,7 +12,16 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
 
   const allCategories = [...new Set(transactions.map(t => t.cat))].sort();
 
-  const data = getFiltered(filters).sort((a, b) => b.date.localeCompare(a.date));
+  const hasActiveFilters =
+    filters.month !== 'all' ||
+    filters.account !== 'all' ||
+    filters.type !== 'all' ||
+    filters.category !== 'all' ||
+    filters.search.trim() !== '';
+
+  const data = hasActiveFilters
+    ? getFiltered(filters).sort((a, b) => b.date.localeCompare(a.date))
+    : [];
   const totE = data.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
   const totI = data.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
 
@@ -33,9 +43,10 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           value={filters.account}
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
-          <option value="all">Both accounts</option>
-          <option value="Canara">Canara Bank</option>
-          <option value="Union">Union Bank</option>
+          <option value="all">All accounts</option>
+          {ACCOUNTS.map((a) => (
+            <option key={a.value} value={a.value}>{a.label}</option>
+          ))}
         </select>
         <select 
           className="filter-select"
@@ -72,7 +83,33 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
         />
       </div>
+
+      {!hasActiveFilters && (
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', margin: '1.25rem 0' }}>
+          <div
+            className="empty"
+            style={{
+              padding: '1.25rem 1rem',
+              borderRadius: '12px',
+              border: '0.5px solid var(--color-border-tertiary)',
+              background: 'var(--color-background-secondary)',
+              textAlign: 'center',
+              maxWidth: '520px',
+              width: '100%',
+              lineHeight: 1.5
+            }}
+          >
+            <div style={{ fontWeight: '500', color: 'var(--color-text-primary)', marginBottom: '6px' }}>
+              Choose filters to load transactions
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+              Pick at least one of: a specific <strong>month</strong>, <strong>account</strong>, <strong>type</strong>, <strong>category</strong>, or enter a <strong>search</strong> term. This keeps the list fast and easy to read.
+            </div>
+          </div>
+        </div>
+      )}
       
+      {hasActiveFilters && (
       <div className="sum-row">
         <div className="sum-card">
           <div className="sum-label">Expenses</div>
@@ -87,36 +124,38 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           <div className="sum-val">{data.length}</div>
         </div>
       </div>
+      )}
 
       {/* Balance Summary for Selected Month */}
-      {filters.month !== 'all' && (
+      {hasActiveFilters && filters.month !== 'all' && (
         <div className="sum-row" style={{ marginBottom: '.875rem' }}>
           <div className="sum-card">
             <div className="sum-label">Start Balance</div>
             <div className="sum-val" style={{ color: 'var(--color-text-secondary)' }}>
-              {fmt(getBalanceForMonth(filters.month).startBalance)}
+              {fmt(getBalanceForMonth(filters.month, filters.account).startBalance)}
             </div>
           </div>
           <div className="sum-card">
             <div className="sum-label">End Balance</div>
             <div className="sum-val" style={{ 
-              color: getBalanceForMonth(filters.month).endBalance >= 0 ? '#3B6D11' : '#A32D2D' 
+              color: getBalanceForMonth(filters.month, filters.account).endBalance >= 0 ? '#3B6D11' : '#A32D2D' 
             }}>
-              {fmt(getBalanceForMonth(filters.month).endBalance)}
+              {fmt(getBalanceForMonth(filters.month, filters.account).endBalance)}
             </div>
           </div>
           <div className="sum-card">
             <div className="sum-label">Net Change</div>
             <div className="sum-val" style={{ 
-              color: (getBalanceForMonth(filters.month).endBalance - getBalanceForMonth(filters.month).startBalance) >= 0 ? '#3B6D11' : '#A32D2D' 
+              color: (getBalanceForMonth(filters.month, filters.account).endBalance - getBalanceForMonth(filters.month, filters.account).startBalance) >= 0 ? '#3B6D11' : '#A32D2D' 
             }}>
-              {(getBalanceForMonth(filters.month).endBalance - getBalanceForMonth(filters.month).startBalance) >= 0 ? '+' : ''}
-              {fmt(getBalanceForMonth(filters.month).endBalance - getBalanceForMonth(filters.month).startBalance)}
+              {(getBalanceForMonth(filters.month, filters.account).endBalance - getBalanceForMonth(filters.month, filters.account).startBalance) >= 0 ? '+' : ''}
+              {fmt(getBalanceForMonth(filters.month, filters.account).endBalance - getBalanceForMonth(filters.month, filters.account).startBalance)}
             </div>
           </div>
         </div>
       )}
 
+      {hasActiveFilters && (
       <div className="tbl-wrap">
         <div className="tbl-head txn-cols">
           <span>Date</span>
@@ -127,7 +166,7 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
         </div>
         <div>
           {!data.length ? (
-            <div className="empty">No transactions found</div>
+            <div className="empty">No transactions match these filters</div>
           ) : (
             data.map(t => {
               const col = getColor(t.cat);
@@ -168,6 +207,7 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

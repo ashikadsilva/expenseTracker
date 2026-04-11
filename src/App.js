@@ -13,6 +13,34 @@ import { loadAppData, saveAppData, DEFAULT_CATEGORIES } from './utils/persistenc
 
 const PALETTE = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C','#633806'];
 
+const SHEET_MONTH_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
+
+/**
+ * Sheet titles like "Canara-Summary-Aug" contain "summary" → substring "mar" would
+ * wrongly match /mar/ if we scan the raw name. Strip known tokens first, then match month.
+ */
+function extractMonthYearFromSheetName(sheetName) {
+  const raw = String(sheetName);
+  const lower = raw.toLowerCase();
+  const normalized = lower
+    .replace(/\b(summary|transactions|transaction|account|canara|union|other|bank)\b/gi, ' ')
+    .replace(/[-_]/g, ' ')
+    .replace(/\b20\d{2}\b/g, ' ');
+  const monthMatch = normalized.match(SHEET_MONTH_RE);
+  let month = 'Unknown';
+  if (monthMatch) {
+    const m = monthMatch[1].toLowerCase();
+    month = m.charAt(0).toUpperCase() + m.slice(1);
+  }
+  const yearMatch = raw.match(/\b(20\d{2})\b/);
+  let year = yearMatch ? yearMatch[1] : '2025';
+  if (!yearMatch && monthMatch) {
+    const m = monthMatch[1].toLowerCase();
+    if (['jan', 'feb', 'mar'].includes(m) && !lower.includes('2025')) year = '2026';
+  }
+  return { month, year };
+}
+
 function App() {
   const [categories, setCategories] = useState({ expense: [], income: [] });
   const [transactions, setTransactions] = useState([]);
@@ -22,6 +50,7 @@ function App() {
   const [editTxnId, setEditTxnId] = useState(null);
   const [editCatName, setEditCatName] = useState(null);
   const [editCatType, setEditCatType] = useState(null);
+  const [categoryModalSource, setCategoryModalSource] = useState(null);
   const [selectedColor, setSelectedColor] = useState(PALETTE[0]);
   const [currentTxnType, setCurrentTxnType] = useState('expense');
   const [importResult, setImportResult] = useState('');
@@ -97,12 +126,14 @@ function App() {
     return '₹' + Math.round(n).toLocaleString('en-IN');
   };
 
-  const calculateMonthlyBalances = () => {
+  /** Running balance by calendar month from the transaction list (not from Excel budget sheets). */
+  const calculateMonthlyBalances = (accountFilter = 'all') => {
     const monthlyData = {};
-    const sortedTransactions = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-    
-    // Calculate running balance for each month
-    sortedTransactions.forEach(t => {
+    const sortedTransactions = [...transactions]
+      .filter((t) => accountFilter === 'all' || t.account === accountFilter)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    sortedTransactions.forEach((t) => {
       const month = t.date.substring(0, 7);
       if (!monthlyData[month]) {
         monthlyData[month] = {
@@ -114,7 +145,6 @@ function App() {
         };
       }
       
-      const amount = t.type === 'expense' ? -t.amount : t.amount;
       monthlyData[month].transactions.push(t);
       monthlyData[month].income += t.type === 'income' ? t.amount : 0;
       monthlyData[month].expenses += t.type === 'expense' ? t.amount : 0;
@@ -133,8 +163,8 @@ function App() {
     return monthlyData;
   };
 
-  const getBalanceForMonth = (month) => {
-    const monthlyData = calculateMonthlyBalances();
+  const getBalanceForMonth = (month, accountFilter = 'all') => {
+    const monthlyData = calculateMonthlyBalances(accountFilter);
     return monthlyData[month] || { startBalance: 0, endBalance: 0, income: 0, expenses: 0 };
   };
 
@@ -282,10 +312,14 @@ function App() {
     setShowCatModal(true);
   };
 
-  const closeCatModal = () => {
+  const finishCatModal = () => {
+    const src = categoryModalSource;
+    setCategoryModalSource(null);
     setShowCatModal(false);
     setEditCatName(null);
     setEditCatType(null);
+    if (src === 'manual') setShowAddEntryModal(true);
+    if (src === 'txn') setShowTxnModal(true);
   };
 
   const saveTxn = (txnData) => {
@@ -342,7 +376,7 @@ function App() {
       }));
     }
     
-    closeCatModal();
+    finishCatModal();
   };
 
   const deleteCat = (name, type) => {
@@ -415,6 +449,7 @@ function App() {
             const sl = sheetName.toLowerCase();
             if (sl.includes('canara')) account = 'Canara';
             else if (sl.includes('union')) account = 'Union';
+            else if (/\bother\b/i.test(sheetName)) account = 'Other';
             for (let r = 4; r < rows.length; r++) {
               const row = rows[r];
               if (!row) continue;
@@ -508,21 +543,13 @@ function App() {
                 }
               };
               
-              // Parse sheet name to extract account and month
+              // Parse sheet name to extract account and month (avoid "mar" inside "Summary")
               let account = 'Unknown';
-              let month = 'Unknown';
-              let year = '2025';
-              
               if (sheetNameLower.includes('canara')) account = 'Canara';
-              if (sheetNameLower.includes('union')) account = 'Union';
-              
-              const monthMatch = sheetName.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
-              if (monthMatch) {
-                month = monthMatch[1].charAt(0).toUpperCase() + monthMatch[1].slice(1);
-              }
-              
-              const yearMatch = sheetName.match(/\d{4}/);
-              if (yearMatch) year = yearMatch[0];
+              else if (sheetNameLower.includes('union')) account = 'Union';
+              else if (sheetNameLower.includes('other')) account = 'Other';
+
+              const { month, year } = extractMonthYearFromSheetName(sheetName);
               
               // Extract values using exact positions with fallback methods and debugging
               console.log(`Processing sheet: ${sheetName}`);
@@ -799,9 +826,11 @@ function App() {
             
             // Determine account from sheet name
             let account = 'Unknown';
-            if (sheetName.toLowerCase().includes('canara')) account = 'Canara';
-            else if (sheetName.toLowerCase().includes('union')) account = 'Union';
-            
+            const sln = sheetName.toLowerCase();
+            if (sln.includes('canara')) account = 'Canara';
+            else if (sln.includes('union')) account = 'Union';
+            else if (/\bother\b/i.test(sheetName)) account = 'Other';
+
             const cat = String(catVal || 'Other').trim() || 'Other';
             const desc = String(descVal || '').trim();
             
@@ -897,7 +926,7 @@ Balance Information Found:
       <div className="topbar">
         <div className="topbar-left">
           <span className="topbar-title">My expense tracker</span>
-          <span className="topbar-sub">Canara Bank & Union Bank</span>
+          <span className="topbar-sub">Canara, Union, other banks</span>
         </div>
         <div className="topbar-right">
           <button className="btn btn-success" onClick={triggerUpload}>Import XLSX</button>
@@ -977,6 +1006,7 @@ Balance Information Found:
           budgetData={budgetData}
           viewMode={viewMode}
           setViewMode={setViewMode}
+          transactions={transactions}
         />
       )}
 
@@ -998,13 +1028,21 @@ Balance Information Found:
           currentTxnType={currentTxnType}
           setCurrentTxnType={setCurrentTxnType}
           getCatNames={getCatNames}
+          onAddCategory={(type) => {
+            setCategoryModalSource('txn');
+            setShowTxnModal(false);
+            setEditCatName(null);
+            setEditCatType(type);
+            setSelectedColor(PALETTE[0]);
+            setShowCatModal(true);
+          }}
         />
       )}
 
       {showCatModal && (
         <CategoryModal
           show={showCatModal}
-          onClose={closeCatModal}
+          onClose={finishCatModal}
           onSave={saveCat}
           editCatName={editCatName}
           editCatType={editCatType}
@@ -1020,6 +1058,14 @@ Balance Information Found:
           onClose={() => setShowAddEntryModal(false)}
           onSubmit={addManualEntry}
           categories={categories}
+          onAddCategory={(type) => {
+            setCategoryModalSource('manual');
+            setShowAddEntryModal(false);
+            setEditCatName(null);
+            setEditCatType(type);
+            setSelectedColor(PALETTE[0]);
+            setShowCatModal(true);
+          }}
         />
       )}
     </div>

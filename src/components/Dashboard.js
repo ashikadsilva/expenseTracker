@@ -1,5 +1,6 @@
- import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Chart, registerables } from 'chart.js';
+import { ACCOUNTS, getAccountBadgeStyle } from '../constants/accounts';
 
 Chart.register(...registerables);
 
@@ -204,9 +205,10 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
           value={filters.account}
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
-          <option value="all">Both accounts</option>
-          <option value="Canara">Canara Bank</option>
-          <option value="Union">Union Bank</option>
+          <option value="all">All accounts</option>
+          {ACCOUNTS.map((a) => (
+            <option key={a.value} value={a.value}>{a.label}</option>
+          ))}
         </select>
         {budgetData && budgetData.length > 0 && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -291,7 +293,7 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
                       <span>
                         {viewMode === 'combined' ? (
                           <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                            Both accounts
+                            All accounts
                           </span>
                         ) : (
                           <span style={{
@@ -299,8 +301,7 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
                             borderRadius: '8px',
                             fontSize: '11px',
                             fontWeight: '500',
-                            backgroundColor: item.account === 'Canara' ? '#E6F1FB' : '#E1F5EE',
-                            color: item.account === 'Canara' ? '#0C447C' : '#085041'
+                            ...getAccountBadgeStyle(item.account)
                           }}>
                             {item.account}
                           </span>
@@ -352,6 +353,9 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
       {/* Balance Summary Section */}
       <div className="chart-card" style={{ marginBottom: '1rem' }}>
         <div className="chart-title">Monthly Balance Summary</div>
+        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '8px', lineHeight: 1.45 }}>
+          Built from <strong>saved transactions</strong> (import, manual entry, etc.). This is separate from <strong>Budget Overview</strong> above, which comes from Excel summary sheets. Extra months (for example wrong dates on import) appear here if those transactions exist in the app.
+        </div>
         <div className="tbl-wrap" style={{ marginTop: '.5rem' }}>
           <div className="tbl-head" style={{ gridTemplateColumns: '120px 1fr 90px 90px 90px' }}>
             <span>Month</span>
@@ -364,7 +368,7 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
             {filters.month === 'all' ? (
               // Show all months when "All months" is selected
               (() => {
-                const monthlyData = calculateMonthlyBalances();
+                const monthlyData = calculateMonthlyBalances(filters.account);
                 const sortedMonths = Object.keys(monthlyData).sort();
                 
                 return sortedMonths.length > 0 ? (
@@ -374,7 +378,9 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
                     return (
                       <div key={month} className="tbl-row" style={{ gridTemplateColumns: '120px 1fr 90px 90px 90px' }}>
                         <span style={{ fontWeight: '500' }}>{monthLabels[month] || month}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Both accounts</span>
+                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                          {filters.account === 'all' ? 'All accounts (merged)' : filters.account}
+                        </span>
                         <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{fmt(balance.startBalance)}</span>
                         <span style={{ textAlign: 'right', fontWeight: '500', color: balance.endBalance >= 0 ? '#3B6D11' : '#A32D2D' }}>
                           {fmt(balance.endBalance)}
@@ -392,13 +398,13 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
             ) : (
               // Show specific month when filtered
               (() => {
-                const balance = getBalanceForMonth(filters.month);
+                const balance = getBalanceForMonth(filters.month, filters.account);
                 const change = balance.endBalance - balance.startBalance;
                 return (
                   <div className="tbl-row" style={{ gridTemplateColumns: '120px 1fr 90px 90px 90px' }}>
                     <span style={{ fontWeight: '500' }}>{monthLabels[filters.month] || filters.month}</span>
                     <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                      {filters.account === 'all' ? 'Both accounts' : filters.account}
+                      {filters.account === 'all' ? 'All accounts' : filters.account}
                     </span>
                     <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{fmt(balance.startBalance)}</span>
                     <span style={{ textAlign: 'right', fontWeight: '500', color: balance.endBalance >= 0 ? '#3B6D11' : '#A32D2D' }}>

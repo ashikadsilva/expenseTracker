@@ -1,6 +1,28 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ACCOUNTS, getAccountBadgeStyle } from '../constants/accounts';
+import { buildCategoryRowsFromTransactions } from '../utils/statementCategoriesFromTransactions';
 
-const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
+const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = [] }) => {
+  const [stmtMonth, setStmtMonth] = useState('all');
+  const [stmtAccount, setStmtAccount] = useState('all');
+
+  useEffect(() => {
+    if (viewMode === 'combined') setStmtAccount('all');
+  }, [viewMode]);
+
+  const monthOptions = useMemo(() => {
+    if (!budgetData || !budgetData.length) return [];
+    const keys = [...new Set(budgetData.map((d) => `${d.month} ${d.year}`))];
+    keys.sort((a, b) => {
+      const [ma, ya] = a.split(' ');
+      const [mb, yb] = b.split(' ');
+      if (ya !== yb) return parseInt(ya, 10) - parseInt(yb, 10);
+      return MONTH_ORDER.indexOf(ma) - MONTH_ORDER.indexOf(mb);
+    });
+    return keys;
+  }, [budgetData]);
   const CAT_COLORS = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C'];
 
   const fmt = (n) => {
@@ -58,9 +80,9 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
           if (!monthData.combinedCategories.expense[cat.category]) {
             monthData.combinedCategories.expense[cat.category] = { planned: 0, actual: 0, diff: 0 };
           }
-          monthData.combinedCategories.expense[cat.category].planned += cat.planned || 0;
-          monthData.combinedCategories.expense[cat.category].actual += cat.actual || 0;
-          monthData.combinedCategories.expense[cat.category].diff += cat.diff || 0;
+          monthData.combinedCategories.expense[cat.category].planned += Number(cat.planned) || 0;
+          monthData.combinedCategories.expense[cat.category].actual += Number(cat.actual) || 0;
+          monthData.combinedCategories.expense[cat.category].diff += Number(cat.diff) || 0;
         });
         
         // Combine income categories
@@ -68,9 +90,9 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
           if (!monthData.combinedCategories.income[cat.category]) {
             monthData.combinedCategories.income[cat.category] = { planned: 0, actual: 0, diff: 0 };
           }
-          monthData.combinedCategories.income[cat.category].planned += cat.planned || 0;
-          monthData.combinedCategories.income[cat.category].actual += cat.actual || 0;
-          monthData.combinedCategories.income[cat.category].diff += cat.diff || 0;
+          monthData.combinedCategories.income[cat.category].planned += Number(cat.planned) || 0;
+          monthData.combinedCategories.income[cat.category].actual += Number(cat.actual) || 0;
+          monthData.combinedCategories.income[cat.category].diff += Number(cat.diff) || 0;
         });
       });
       
@@ -79,6 +101,53 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
       // Return individual sheets
       return budgetData;
     }
+  };
+
+  const resolveStatementCategories = (item, isCombined, kind) => {
+    const mapCombined = (path) =>
+      Object.entries((item.combinedCategories && item.combinedCategories[path]) || {}).map(([category, data]) => ({
+        category,
+        planned: Number(data?.planned) || 0,
+        actual: Number(data?.actual) || 0,
+        diff: Number(data?.diff) || 0,
+      }));
+
+    const fromSheetRaw =
+      kind === 'expense'
+        ? isCombined
+          ? mapCombined('expense')
+          : item.expense_categories || []
+        : isCombined
+          ? mapCombined('income')
+          : item.income_categories || [];
+
+    const fromSheet = fromSheetRaw.map((c) => {
+      const planned = Number(c.planned) || 0;
+      const actual = Number(c.actual) || 0;
+      const diffRaw = c.diff;
+      const diff =
+        diffRaw != null && Number.isFinite(Number(diffRaw))
+          ? Number(diffRaw)
+          : actual - planned;
+      return { category: c.category, planned, actual, diff };
+    });
+
+    if (fromSheet.some((c) => Number(c.actual) > 0)) return fromSheet;
+
+    const total =
+      kind === 'expense'
+        ? isCombined
+          ? Number(item.combinedExpenses) || 0
+          : Number(item.total_expenses_actual) || 0
+        : isCombined
+          ? Number(item.combinedIncome) || 0
+          : Number(item.total_income_actual) || 0;
+
+    if (total <= 0 || !transactions.length) return fromSheet;
+
+    const type = kind === 'expense' ? 'expense' : 'income';
+    const acct = isCombined ? null : item.account;
+    return buildCategoryRowsFromTransactions(transactions, item.month, item.year, acct, type);
   };
 
   const renderStatementCard = (item, isCombined = false) => {
@@ -95,13 +164,8 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
     const isBalanceConsistent = Math.abs(balanceVariance) < 0.01;
     const issues = isCombined ? (item.combinedIssues || []) : (item.issues || []);
 
-    const expenseCategories = isCombined 
-      ? Object.entries(item.combinedCategories.expense).map(([name, data]) => ({ category: name, ...data }))
-      : (item.expense_categories || []);
-    
-    const incomeCategories = isCombined 
-      ? Object.entries(item.combinedCategories.income).map(([name, data]) => ({ category: name, ...data }))
-      : (item.income_categories || []);
+    const expenseCategories = resolveStatementCategories(item, isCombined, 'expense');
+    const incomeCategories = resolveStatementCategories(item, isCombined, 'income');
 
     return (
       <div key={isCombined ? `${item.month}-${item.year}` : item.sheet} 
@@ -133,8 +197,7 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
                 borderRadius: '10px',
                 fontSize: '11px',
                 fontWeight: '500',
-                backgroundColor: item.account === 'Canara' ? '#E6F1FB' : '#E1F5EE',
-                color: item.account === 'Canara' ? '#0C447C' : '#085041'
+                ...getAccountBadgeStyle(item.account)
               }}>
                 {item.account}
               </span>
@@ -338,8 +401,8 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
               <span style={{ textAlign: 'right' }}>Difference</span>
             </div>
             {expenseCategories
-              .filter(cat => cat.actual > 0)
-              .sort((a, b) => b.actual - a.actual)
+              .filter((cat) => Number(cat.actual) > 0)
+              .sort((a, b) => Number(b.actual) - Number(a.actual))
               .map((cat, i) => (
                 <div key={cat.category} style={{
                   display: 'grid',
@@ -366,14 +429,14 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
                     {fmt(cat.actual)}
                   </span>
                   <span style={{ textAlign: 'right', fontWeight: '500', color: cat.diff >= 0 ? '#3B6D11' : '#A32D2D' }}>
-                    {fmtSigned(cat.diff)}
-                  </span>
-                  <span style={{ textAlign: 'right', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
-                    ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
+                    <div>{fmtSigned(cat.diff)}</div>
+                    <div style={{ fontSize: '10px', fontWeight: '400', color: 'var(--color-text-secondary)' }}>
+                      ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
+                    </div>
                   </span>
                 </div>
               ))}
-            {expenseCategories.filter(cat => cat.actual > 0).length === 0 && (
+            {expenseCategories.filter((cat) => Number(cat.actual) > 0).length === 0 && (
               <div style={{
                 padding: '12px',
                 textAlign: 'center',
@@ -420,8 +483,8 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
               <span style={{ textAlign: 'right' }}>Difference</span>
             </div>
             {incomeCategories
-              .filter(cat => cat.actual > 0)
-              .sort((a, b) => b.actual - a.actual)
+              .filter((cat) => Number(cat.actual) > 0)
+              .sort((a, b) => Number(b.actual) - Number(a.actual))
               .map((cat, i) => (
                 <div key={cat.category} style={{
                   display: 'grid',
@@ -448,14 +511,14 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
                     {fmt(cat.actual)}
                   </span>
                   <span style={{ textAlign: 'right', fontWeight: '500', color: '#3B6D11' }}>
-                    {fmtSigned(cat.diff)}
-                  </span>
-                  <span style={{ textAlign: 'right', fontSize: '10px', color: 'var(--color-text-secondary)' }}>
-                    ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
+                    <div>{fmtSigned(cat.diff)}</div>
+                    <div style={{ fontSize: '10px', fontWeight: '400', color: 'var(--color-text-secondary)' }}>
+                      ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
+                    </div>
                   </span>
                 </div>
               ))}
-            {incomeCategories.filter(cat => cat.actual > 0).length === 0 && (
+            {incomeCategories.filter((cat) => Number(cat.actual) > 0).length === 0 && (
               <div style={{
                 padding: '12px',
                 textAlign: 'center',
@@ -471,7 +534,19 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
     );
   };
 
-  const filteredData = getFilteredBudgetData();
+  const baseStatementData = getFilteredBudgetData();
+  const stmtFiltersActive = stmtMonth !== 'all' || stmtAccount !== 'all';
+
+  const displayStatementData = (() => {
+    if (!stmtFiltersActive) return [];
+    return baseStatementData.filter((item) => {
+      const key = `${item.month} ${item.year}`;
+      const monthOk = stmtMonth === 'all' || key === stmtMonth;
+      if (viewMode === 'combined') return monthOk;
+      const accOk = stmtAccount === 'all' || item.account === stmtAccount;
+      return monthOk && accOk;
+    });
+  })();
 
   return (
     <div>
@@ -523,17 +598,84 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode }) => {
         </div>
       </div>
 
-      {/* Statement Cards */}
-      {filteredData.length > 0 ? (
-        filteredData.map(item => renderStatementCard(item, viewMode === 'combined'))
+      {budgetData && budgetData.length > 0 && (
+        <div className="filters" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+          <select
+            className="filter-select"
+            value={stmtMonth}
+            onChange={(e) => setStmtMonth(e.target.value)}
+          >
+            <option value="all">All months</option>
+            {monthOptions.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <select
+            className="filter-select"
+            value={stmtAccount}
+            onChange={(e) => setStmtAccount(e.target.value)}
+            disabled={viewMode === 'combined'}
+            title={viewMode === 'combined' ? 'Account filter is available in Per sheet view' : undefined}
+            style={viewMode === 'combined' ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
+          >
+            <option value="all">All accounts</option>
+            {ACCOUNTS.map((a) => (
+              <option key={a.value} value={a.value}>{a.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {!budgetData || budgetData.length === 0 ? (
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+          <div style={{
+            textAlign: 'center',
+            padding: '2rem',
+            color: 'var(--color-text-secondary)',
+            fontSize: '14px',
+            maxWidth: '520px'
+          }}>
+            No budget data available. Upload an Excel file to see statements.
+          </div>
+        </div>
+      ) : !stmtFiltersActive ? (
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+          <div
+            style={{
+              marginTop: '0.5rem',
+              padding: '1.25rem 1rem',
+              borderRadius: '12px',
+              border: '0.5px solid var(--color-border-tertiary)',
+              background: 'var(--color-background-secondary)',
+              textAlign: 'center',
+              maxWidth: '520px',
+              lineHeight: 1.5,
+              color: 'var(--color-text-secondary)',
+              fontSize: '13px'
+            }}
+          >
+            <div style={{ fontWeight: '500', color: 'var(--color-text-primary)', marginBottom: '6px' }}>
+              Choose what to view
+            </div>
+            Select a <strong>month</strong> and/or <strong>account</strong> above to load statement details.
+            {viewMode === 'combined' && (
+              <span> Combined view rolls up both banks by month, so only the month filter applies.</span>
+            )}
+          </div>
+        </div>
+      ) : displayStatementData.length > 0 ? (
+        displayStatementData.map((item) => renderStatementCard(item, viewMode === 'combined'))
       ) : (
-        <div style={{
-          textAlign: 'center',
-          padding: '2rem',
-          color: 'var(--color-text-secondary)',
-          fontSize: '14px'
-        }}>
-          No budget data available. Upload an Excel file to see statements.
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+          <div style={{
+            textAlign: 'center',
+            padding: '2rem',
+            color: 'var(--color-text-secondary)',
+            fontSize: '14px',
+            maxWidth: '520px'
+          }}>
+            No statements match these filters. Try a different month or account.
+          </div>
         </div>
       )}
     </div>

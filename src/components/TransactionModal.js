@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ACCOUNTS } from '../constants/accounts';
 
 const TransactionModal = ({ 
   show, 
@@ -9,7 +10,8 @@ const TransactionModal = ({
   categories, 
   currentTxnType, 
   setCurrentTxnType, 
-  getCatNames 
+  getCatNames,
+  onAddCategory
 }) => {
   const [formData, setFormData] = useState({
     date: '',
@@ -61,6 +63,15 @@ const TransactionModal = ({
   };
 
   const availableCategories = getCatNames(currentTxnType);
+
+  const handleCategoryChange = (value) => {
+    if (value === '__new__' && onAddCategory) {
+      onAddCategory(currentTxnType);
+      setFormData((prev) => ({ ...prev, category: '' }));
+      return;
+    }
+    setFormData((prev) => ({ ...prev, category: value }));
+  };
 
   if (!show) return null;
 
@@ -124,12 +135,16 @@ const TransactionModal = ({
             <label className="form-label">Category</label>
             <select 
               value={formData.category}
-              onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+              onChange={(e) => handleCategoryChange(e.target.value)}
               required
             >
+              <option value="">Select category</option>
               {availableCategories.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
+              {onAddCategory && (
+                <option value="__new__">+ Create new category</option>
+              )}
             </select>
           </div>
           
@@ -139,8 +154,9 @@ const TransactionModal = ({
               value={formData.account}
               onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
             >
-              <option value="Canara">Canara Bank</option>
-              <option value="Union">Union Bank</option>
+              {ACCOUNTS.map((a) => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
             </select>
           </div>
 
