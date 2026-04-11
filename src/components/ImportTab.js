@@ -1,12 +1,17 @@
 import React from 'react';
 
-const ImportTab = ({ triggerUpload, importResult }) => {
+const ImportTab = ({ triggerUpload, importResult, accountsSummary = '' }) => {
   return (
     <div className="section">
       <div className="upload-zone" onClick={triggerUpload}>
         <div className="upload-icon">📂</div>
         <div className="upload-title">Upload your Monthly_budget.xlsx</div>
-        <div className="upload-sub">Reads the Transactions sheets automatically. Supports Canara and Union accounts.</div>
+        <div className="upload-sub">
+          Reads transaction sheets automatically.
+          {accountsSummary
+            ? ` Account names are detected using your keywords (${accountsSummary}).`
+            : ' Configure accounts under Manage accounts.'}
+        </div>
         <div style={{ marginTop: '.875rem' }}>
           <button 
             className="btn btn-primary" 
@@ -44,7 +49,7 @@ const ImportTab = ({ triggerUpload, importResult }) => {
           How import works
         </div>
         <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', lineHeight: '1.7' }}>
-          Sheets named with "Transactions" are read. Expenses are in columns B\u2013E (Date, Amount, Description, Category). Income is in columns F\u2013I. Account is detected from the sheet name (Canara or Union). Duplicate dates+amounts are skipped automatically.
+          Sheets named with "Transactions" are read. Expenses are in columns B\u2013E (Date, Amount, Description, Category). Income is in columns F\u2013I. The account is guessed from each sheet name using the import keywords you set per account. Duplicate dates+amounts are skipped automatically.
         </div>
       </div>
     </div>

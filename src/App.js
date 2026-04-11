@@ -5,6 +5,8 @@ import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import CategoriesView from './components/CategoriesView';
 import ManageCategories from './components/ManageCategories';
+import ManageAccounts from './components/ManageAccounts';
+import AccountModal from './components/AccountModal';
 import ImportTab from './components/ImportTab';
 import TransactionModal from './components/TransactionModal';
 import CategoryModal from './components/CategoryModal';
@@ -18,6 +20,12 @@ import {
   getSupabaseClient,
 } from './utils/persistence';
 import { useWalkthrough } from './hooks/useWalkthrough';
+import {
+  normalizeAccounts,
+  matchAccountFromSheetName,
+  stripAccountNoiseFromSheetName,
+  defaultAccountId,
+} from './utils/accounts';
 
 const PALETTE = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C','#633806'];
 
@@ -55,11 +63,10 @@ const MONTH_TOKEN_TO_SHORT = {
  * Sheet titles like "Canara-Summary-Aug" contain "summary" → substring "mar" would
  * wrongly match /mar/ if we scan the raw name. Strip known tokens first, then match month.
  */
-function extractMonthYearFromSheetName(sheetName) {
+function extractMonthYearFromSheetName(sheetName, accounts) {
   const raw = String(sheetName);
   const lower = raw.toLowerCase();
-  const normalized = lower
-    .replace(/\b(summary|transactions|transaction|account|canara|union|other|bank)\b/gi, ' ')
+  const normalized = stripAccountNoiseFromSheetName(raw, accounts)
     .replace(/[-_]/g, ' ')
     .replace(/\b20\d{2}\b/g, ' ');
   const monthMatch = normalized.match(SHEET_MONTH_RE);
@@ -97,6 +104,10 @@ function App() {
   const [importResult, setImportResult] = useState('');
   const fileInputRef = useRef(null);
   const [budgetData, setBudgetData] = useState([]);
+  const [accounts, setAccounts] = useState(() => normalizeAccounts(null));
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [editAccount, setEditAccount] = useState(null);
+  const accountsRef = useRef(accounts);
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
   const [viewMode, setViewMode] = useState('individual'); // 'individual' or 'combined'
   const [dataReady, setDataReady] = useState(false);
@@ -143,6 +154,7 @@ function App() {
         setCategories(data.categories);
         setTransactions(data.transactions);
         setBudgetData(data.budgetData);
+        setAccounts(data.accounts);
       } catch (error) {
         console.error('Error initializing data:', error);
         if (!cancelled) {
@@ -152,6 +164,7 @@ function App() {
           });
           setTransactions([]);
           setBudgetData([]);
+          setAccounts(normalizeAccounts(null));
         }
       } finally {
         if (!cancelled) setDataReady(true);
@@ -168,11 +181,65 @@ function App() {
       transactions,
       categories,
       budgetData,
-      cloudAuth ? user?.id : undefined
+      cloudAuth ? user?.id : undefined,
+      accounts
     );
-  }, [transactions, categories, budgetData, dataReady, cloudAuth, user?.id]);
+  }, [transactions, categories, budgetData, accounts, dataReady, cloudAuth, user?.id]);
 
   useWalkthrough(user?.id, Boolean(dataReady && cloudAuth && user));
+
+  useEffect(() => {
+    accountsRef.current = accounts;
+  }, [accounts]);
+
+  const openAccountModal = (acct) => {
+    setEditAccount(acct || null);
+    setShowAccountModal(true);
+  };
+
+  const closeAccountModal = () => {
+    setShowAccountModal(false);
+    setEditAccount(null);
+  };
+
+  const saveAccountRow = (payload) => {
+    const { prevId, id, label, keywords, chipColor } = payload;
+    const row = { id, label, keywords, chipColor };
+    setAccounts((prev) => {
+      if (prevId) {
+        return prev.map((a) => (a.id === prevId ? row : a));
+      }
+      if (prev.some((a) => a.id === id)) {
+        window.alert('That account ID already exists. Use a different ID.');
+        return prev;
+      }
+      return [...prev, row];
+    });
+    closeAccountModal();
+  };
+
+  const deleteAccountRow = (id) => {
+    if (accounts.length <= 1) {
+      window.alert('Keep at least one account.');
+      return;
+    }
+    if (
+      !window.confirm(
+        'Delete this account? Transactions and budget rows that use it will move to your first remaining account.'
+      )
+    ) {
+      return;
+    }
+    const next = accounts.filter((a) => a.id !== id);
+    const fallback = next[0].id;
+    setTransactions((prev) =>
+      prev.map((t) => (t.account === id ? { ...t, account: fallback } : t))
+    );
+    setBudgetData((prev) =>
+      prev.map((b) => (b.account === id ? { ...b, account: fallback } : b))
+    );
+    setAccounts(next);
+  };
 
   const getColor = (cat) => {
     const all = [...categories.expense, ...categories.income];
@@ -495,6 +562,7 @@ function App() {
       
       reader.onload = function(e) {
         try {
+          const acctList = accountsRef.current;
           const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
           let imported = 0, skipped = 0;
           const existingKeys = new Set(transactions.map(t => `${t.date}_${t.amount}_${t.account}_${t.type}`));
@@ -524,11 +592,7 @@ function App() {
           const parseTransactionSheet = (ws, sheetName) => {
             const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
             const transactions = [];
-            let account = 'Unknown';
-            const sl = sheetName.toLowerCase();
-            if (sl.includes('canara')) account = 'Canara';
-            else if (sl.includes('union')) account = 'Union';
-            else if (/\bother\b/i.test(sheetName)) account = 'Other';
+            const account = matchAccountFromSheetName(sheetName, acctList);
             for (let r = 4; r < rows.length; r++) {
               const row = rows[r];
               if (!row) continue;
@@ -622,13 +686,9 @@ function App() {
                 }
               };
               
-              // Parse sheet name to extract account and month (avoid "mar" inside "Summary")
-              let account = 'Unknown';
-              if (sheetNameLower.includes('canara')) account = 'Canara';
-              else if (sheetNameLower.includes('union')) account = 'Union';
-              else if (sheetNameLower.includes('other')) account = 'Other';
+              const account = matchAccountFromSheetName(sheetName, acctList);
 
-              const { month, year } = extractMonthYearFromSheetName(sheetName);
+              const { month, year } = extractMonthYearFromSheetName(sheetName, acctList);
               
               // Extract values using exact positions with fallback methods and debugging
               console.log(`Processing sheet: ${sheetName}`);
@@ -903,12 +963,7 @@ function App() {
             const type = amount < 0 ? 'expense' : 'income';
             const absAmount = Math.abs(amount);
             
-            // Determine account from sheet name
-            let account = 'Unknown';
-            const sln = sheetName.toLowerCase();
-            if (sln.includes('canara')) account = 'Canara';
-            else if (sln.includes('union')) account = 'Union';
-            else if (/\bother\b/i.test(sheetName)) account = 'Other';
+            const account = matchAccountFromSheetName(sheetName, acctList);
 
             const cat = String(catVal || 'Other').trim() || 'Other';
             const desc = String(descVal || '').trim();
@@ -1031,7 +1086,9 @@ Balance Information Found:
       <div className="topbar" data-tour="topbar">
         <div className="topbar-left">
           <span className="topbar-title">My expense tracker</span>
-          <span className="topbar-sub">Canara, Union, other banks</span>
+          <span className="topbar-sub">
+            {accounts.map((a) => a.label).join(' · ') || 'Your bank accounts'}
+          </span>
         </div>
         <div className="topbar-right">
           <button
@@ -1079,6 +1136,7 @@ Balance Information Found:
         <div className={`tab ${activeTab === 'transactions' ? 'active' : ''}`} onClick={() => setActiveTab('transactions')}>Transactions</div>
         <div className={`tab ${activeTab === 'categories-view' ? 'active' : ''}`} onClick={() => setActiveTab('categories-view')}>Categories</div>
         <div className={`tab ${activeTab === 'manage-cats' ? 'active' : ''}`} onClick={() => setActiveTab('manage-cats')}>Manage categories</div>
+        <div className={`tab ${activeTab === 'manage-accts' ? 'active' : ''}`} onClick={() => setActiveTab('manage-accts')}>Manage accounts</div>
         <div className={`tab ${activeTab === 'monthly-statement' ? 'active' : ''}`} onClick={() => setActiveTab('monthly-statement')}>Monthly Statement</div>
         <div className={`tab ${activeTab === 'import-tab' ? 'active' : ''}`} onClick={() => setActiveTab('import-tab')}>Import</div>
       </div>
@@ -1087,6 +1145,7 @@ Balance Information Found:
         <Dashboard 
           transactions={transactions}
           categories={categories}
+          accounts={accounts}
           getColor={getColor}
           fmt={fmt}
           getFiltered={getFiltered}
@@ -1103,6 +1162,7 @@ Balance Information Found:
         <Transactions 
           transactions={transactions}
           categories={categories}
+          accounts={accounts}
           getColor={getColor}
           fmt={fmt}
           getFiltered={getFiltered}
@@ -1118,6 +1178,7 @@ Balance Information Found:
         <CategoriesView 
           transactions={transactions}
           categories={categories}
+          accounts={accounts}
           getColor={getColor}
           fmt={fmt}
           getFiltered={getFiltered}
@@ -1133,9 +1194,18 @@ Balance Information Found:
         />
       )}
 
+      {activeTab === 'manage-accts' && (
+        <ManageAccounts
+          accounts={accounts}
+          openAccountModal={openAccountModal}
+          deleteAccount={deleteAccountRow}
+        />
+      )}
+
       {activeTab === 'monthly-statement' && (
         <MonthlyStatement 
           budgetData={budgetData}
+          accounts={accounts}
           viewMode={viewMode}
           setViewMode={setViewMode}
           transactions={transactions}
@@ -1146,6 +1216,7 @@ Balance Information Found:
         <ImportTab 
           triggerUpload={triggerUpload}
           importResult={importResult}
+          accountsSummary={accounts.map((a) => a.label).join(', ')}
         />
       )}
 
@@ -1157,6 +1228,7 @@ Balance Information Found:
           editTxnId={editTxnId}
           transactions={transactions}
           categories={categories}
+          accounts={accounts}
           currentTxnType={currentTxnType}
           setCurrentTxnType={setCurrentTxnType}
           getCatNames={getCatNames}
@@ -1190,6 +1262,7 @@ Balance Information Found:
           onClose={() => setShowAddEntryModal(false)}
           onSubmit={addManualEntry}
           categories={categories}
+          accounts={accounts}
           onAddCategory={(type) => {
             setCategoryModalSource('manual');
             setShowAddEntryModal(false);
@@ -1198,6 +1271,16 @@ Balance Information Found:
             setSelectedColor(PALETTE[0]);
             setShowCatModal(true);
           }}
+        />
+      )}
+
+      {showAccountModal && (
+        <AccountModal
+          show={showAccountModal}
+          onClose={closeAccountModal}
+          onSave={saveAccountRow}
+          editAccount={editAccount}
+          palette={PALETTE}
         />
       )}
     </div>

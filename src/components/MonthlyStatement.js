@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ACCOUNTS, getAccountBadgeStyle } from '../constants/accounts';
+import { getAccountBadgeStyle } from '../utils/accounts';
 import { buildCategoryRowsFromTransactions } from '../utils/statementCategoriesFromTransactions';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = [] }) => {
+const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transactions = [] }) => {
   const [stmtMonth, setStmtMonth] = useState('all');
   const [stmtAccount, setStmtAccount] = useState('all');
 
@@ -237,7 +237,7 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = []
                   borderRadius: '999px',
                   fontSize: '11px',
                   fontWeight: '600',
-                  ...getAccountBadgeStyle(item.account)
+                  ...getAccountBadgeStyle(item.account, accounts)
                 }}
               >
                 {item.account}
@@ -442,8 +442,8 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = []
             style={viewMode === 'combined' ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
           >
             <option value="all">All accounts</option>
-            {ACCOUNTS.map((a) => (
-              <option key={a.value} value={a.value}>{a.label}</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.label}</option>
             ))}
           </select>
         </div>

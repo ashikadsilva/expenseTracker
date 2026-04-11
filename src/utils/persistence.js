@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { normalizeAccounts } from './accounts';
 
 const LS_TXN = 'expenseTrackerTransactions';
 const LS_CAT = 'expenseTrackerCategories';
 const LS_BUDGET = 'expenseTrackerBudgetData';
+const LS_ACCOUNTS = 'expenseTrackerAccounts';
 
 /** Default category lists when there is no saved data yet. */
 export const DEFAULT_CATEGORIES = {
@@ -36,21 +38,35 @@ export const DEFAULT_CATEGORIES = {
 };
 
 function normalizeCategories(raw) {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_CATEGORIES, expense: [...DEFAULT_CATEGORIES.expense], income: [...DEFAULT_CATEGORIES.income] };
+  if (!raw || typeof raw !== 'object')
+    return {
+      ...DEFAULT_CATEGORIES,
+      expense: [...DEFAULT_CATEGORIES.expense],
+      income: [...DEFAULT_CATEGORIES.income],
+    };
   const expense = Array.isArray(raw.expense) ? raw.expense : [];
   const income = Array.isArray(raw.income) ? raw.income : [];
   if (expense.length === 0 && income.length === 0) {
-    return { expense: [...DEFAULT_CATEGORIES.expense], income: [...DEFAULT_CATEGORIES.income] };
+    return {
+      expense: [...DEFAULT_CATEGORIES.expense],
+      income: [...DEFAULT_CATEGORIES.income],
+    };
   }
   return { expense, income };
 }
 
 const PLACEHOLDER_FRAGMENTS = ['your-project-id.supabase.co', 'your-project.supabase.co'];
 
+/**
+ * Cloud + auth when URL/key look real, OR when REACT_APP_SUPABASE_ENABLED=true (use on Netlify if the URL
+ * is flagged incorrectly, or after setting real keys — still requires both URL and key non-empty).
+ */
 export function isCloudPersistenceEnabled() {
   const url = (process.env.REACT_APP_SUPABASE_URL || '').trim();
   const key = (process.env.REACT_APP_SUPABASE_ANON_KEY || '').trim();
   if (!url || !key) return false;
+  const force = /^true$/i.test((process.env.REACT_APP_SUPABASE_ENABLED || '').trim());
+  if (force) return true;
   if (PLACEHOLDER_FRAGMENTS.some((f) => url.includes(f))) return false;
   if (/^your-anon-key$/i.test(key) || /^your-supabase-anon-key$/i.test(key)) return false;
   return true;
@@ -77,7 +93,6 @@ function getClient() {
   return supabaseClient;
 }
 
-/** Same singleton as persistence; use for Auth UI. */
 export function getSupabaseClient() {
   return getClient();
 }
@@ -87,27 +102,27 @@ function readLocalStorage() {
     const localTransactions = localStorage.getItem(LS_TXN);
     const localCategories = localStorage.getItem(LS_CAT);
     const localBudgetData = localStorage.getItem(LS_BUDGET);
+    const localAccounts = localStorage.getItem(LS_ACCOUNTS);
     return {
       transactions: localTransactions ? JSON.parse(localTransactions) : [],
       categories: localCategories ? JSON.parse(localCategories) : null,
       budgetData: localBudgetData ? JSON.parse(localBudgetData) : [],
+      accounts: localAccounts ? JSON.parse(localAccounts) : null,
     };
   } catch {
-    return { transactions: [], categories: null, budgetData: [] };
+    return { transactions: [], categories: null, budgetData: [], accounts: null };
   }
 }
 
-function writeLocalStorage(transactions, categories, budgetData) {
+function writeLocalStorage(transactions, categories, budgetData, accounts) {
   localStorage.setItem(LS_TXN, JSON.stringify(transactions));
   localStorage.setItem(LS_CAT, JSON.stringify(categories));
   localStorage.setItem(LS_BUDGET, JSON.stringify(budgetData));
+  localStorage.setItem(LS_ACCOUNTS, JSON.stringify(accounts));
 }
 
 /**
- * Load from Supabase when configured and userId is set (signed-in user), else localStorage.
- * When cloud is enabled but userId is omitted, skips cloud (used only when auth is not required).
- * New visitors get default categories and empty transactions/budget.
- * @param {string | undefined} userId - Supabase auth user id (uuid) for per-user row key.
+ * @param {string | undefined} userId
  */
 export async function loadAppData(userId) {
   const client = getClient();
@@ -115,7 +130,7 @@ export async function loadAppData(userId) {
   if (client && userId) {
     const { data, error } = await client
       .from('expense_tracker_data')
-      .select('transactions,categories,budget_data')
+      .select('transactions,categories,budget_data,accounts')
       .eq('id', userId)
       .maybeSingle();
 
@@ -125,13 +140,15 @@ export async function loadAppData(userId) {
       const transactions = Array.isArray(data.transactions) ? data.transactions : [];
       const categories = normalizeCategories(data.categories);
       const budgetData = Array.isArray(data.budget_data) ? data.budget_data : [];
-      writeLocalStorage(transactions, categories, budgetData);
-      return { transactions, categories, budgetData };
+      const accounts = normalizeAccounts(data.accounts);
+      writeLocalStorage(transactions, categories, budgetData, accounts);
+      return { transactions, categories, budgetData, accounts };
     } else {
       const local = readLocalStorage();
       const categories = local.categories
         ? normalizeCategories(local.categories)
         : normalizeCategories(null);
+      const accounts = normalizeAccounts(local.accounts);
       const hasAny =
         (local.transactions && local.transactions.length > 0) ||
         (local.budgetData && local.budgetData.length > 0) ||
@@ -142,19 +159,22 @@ export async function loadAppData(userId) {
           transactions: Array.isArray(local.transactions) ? local.transactions : [],
           categories,
           budgetData: Array.isArray(local.budgetData) ? local.budgetData : [],
+          accounts,
         };
-        writeLocalStorage(out.transactions, out.categories, out.budgetData);
+        writeLocalStorage(out.transactions, out.categories, out.budgetData, out.accounts);
         return out;
       }
       const defaults = {
         transactions: [],
         categories: normalizeCategories(null),
         budgetData: [],
+        accounts: normalizeAccounts(null),
       };
       writeLocalStorage(
         defaults.transactions,
         defaults.categories,
-        defaults.budgetData
+        defaults.budgetData,
+        defaults.accounts
       );
       return defaults;
     }
@@ -162,6 +182,7 @@ export async function loadAppData(userId) {
 
   const local = readLocalStorage();
   const categories = local.categories ? normalizeCategories(local.categories) : normalizeCategories(null);
+  const accounts = normalizeAccounts(local.accounts);
   const hasAny =
     (local.transactions && local.transactions.length > 0) ||
     (local.budgetData && local.budgetData.length > 0) ||
@@ -172,6 +193,7 @@ export async function loadAppData(userId) {
       transactions: Array.isArray(local.transactions) ? local.transactions : [],
       categories,
       budgetData: Array.isArray(local.budgetData) ? local.budgetData : [],
+      accounts,
     };
   }
 
@@ -179,16 +201,17 @@ export async function loadAppData(userId) {
     transactions: [],
     categories: normalizeCategories(null),
     budgetData: [],
+    accounts: normalizeAccounts(null),
   };
 }
 
 /**
- * Persist to localStorage and Supabase when configured.
- * Cloud upsert runs only for a signed-in user (userId).
- * @param {string | undefined} userId - Supabase auth user id for row primary key.
+ * @param {string | undefined} userId
+ * @param {unknown} accounts
  */
-export async function saveAppData(transactions, categories, budgetData, userId) {
-  writeLocalStorage(transactions, categories, budgetData);
+export async function saveAppData(transactions, categories, budgetData, userId, accounts) {
+  const acct = normalizeAccounts(accounts);
+  writeLocalStorage(transactions, categories, budgetData, acct);
 
   const client = getClient();
   if (!client || !userId) return;
@@ -199,6 +222,7 @@ export async function saveAppData(transactions, categories, budgetData, userId) 
       transactions,
       categories,
       budget_data: budgetData,
+      accounts: acct,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' }

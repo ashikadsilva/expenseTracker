@@ -21,6 +21,7 @@ CREATE TABLE expense_tracker_data (
   transactions JSONB,
   categories JSONB,
   budget_data JSONB,
+  accounts JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -40,6 +41,10 @@ CREATE TABLE expense_tracker_data (
 1. In Supabase: **Authentication → Providers → Email** — enable Email, configure whether **Confirm email** is required.
 2. Run **`supabase/per-user-rls.sql`** in the SQL Editor (drops the old anon policy and adds `authenticated`-only policies).
 3. You can remove the old `'main'` seed row if you no longer need it, or keep it unused.
+
+4. If the table already exists without an `accounts` column, run `supabase/add-accounts-column.sql`.
+
+**Login screen missing on Netlify:** Create React App bakes env vars in at **build** time. Add `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` under **Site configuration → Environment variables**, then **trigger a new deploy** (Deploys → Deploy site). Names must start with `REACT_APP_`. If the URL still fails the built-in placeholder check (rare), set `REACT_APP_SUPABASE_ENABLED` to `true` as well (still requires both URL and key to be set).
 
 If you prefer **not** to use RLS during local experiments, you can run `ALTER TABLE expense_tracker_data DISABLE ROW LEVEL SECURITY;` (not recommended for a public deploy).
 

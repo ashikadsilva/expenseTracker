@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { ACCOUNTS } from '../constants/accounts';
 import { IconPencil, IconTrash } from './actionIcons';
 
-const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths, getCatNames, openTxnModal, deleteTxn, getBalanceForMonth }) => {
+const Transactions = ({ transactions, categories, accounts, getColor, fmt, getFiltered, getAllMonths, getCatNames, openTxnModal, deleteTxn, getBalanceForMonth }) => {
   const [filters, setFilters] = useState({ 
     month: 'all', 
     account: 'all', 
@@ -45,8 +44,8 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
           <option value="all">All accounts</option>
-          {ACCOUNTS.map((a) => (
-            <option key={a.value} value={a.value}>{a.label}</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.label}</option>
           ))}
         </select>
         <select 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ACCOUNTS } from '../constants/accounts';
+import { defaultAccountId } from '../utils/accounts';
 
 const TransactionModal = ({ 
   show, 
@@ -8,6 +8,7 @@ const TransactionModal = ({
   editTxnId, 
   transactions, 
   categories, 
+  accounts,
   currentTxnType, 
   setCurrentTxnType, 
   getCatNames,
@@ -18,7 +19,7 @@ const TransactionModal = ({
     amount: '',
     description: '',
     category: '',
-    account: 'Canara'
+    account: defaultAccountId(accounts)
   });
 
   useEffect(() => {
@@ -41,10 +42,10 @@ const TransactionModal = ({
         amount: '',
         description: '',
         category: '',
-        account: 'Canara'
+        account: defaultAccountId(accounts)
       });
     }
-  }, [editTxnId, transactions, setCurrentTxnType]);
+  }, [editTxnId, transactions, setCurrentTxnType, accounts]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -154,9 +155,13 @@ const TransactionModal = ({
               value={formData.account}
               onChange={(e) => setFormData(prev => ({ ...prev, account: e.target.value }))}
             >
-              {ACCOUNTS.map((a) => (
-                <option key={a.value} value={a.value}>{a.label}</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
               ))}
+              {formData.account &&
+              !accounts.some((a) => a.id === formData.account) ? (
+                <option value={formData.account}>{formData.account} (legacy)</option>
+              ) : null}
             </select>
           </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chart, registerables } from 'chart.js';
-import { ACCOUNTS, getAccountBadgeStyle } from '../constants/accounts';
+import { getAccountBadgeStyle } from '../utils/accounts';
 import { budgetMonthYearToIsoKey } from '../utils/monthKeys';
 
 Chart.register(...registerables);
@@ -31,7 +31,7 @@ const COL = {
   grid: 'rgba(0, 0, 0, 0.06)'
 };
 
-const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths, calculateMonthlyBalances, getBalanceForMonth, budgetData, viewMode, setViewMode }) => {
+const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFiltered, getAllMonths, calculateMonthlyBalances, getBalanceForMonth, budgetData, viewMode, setViewMode }) => {
   const [filters, setFilters] = useState({ month: 'all', account: 'all' });
   const groupedBarRef = useRef(null);
   const balanceLineRef = useRef(null);
@@ -464,8 +464,8 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
           <option value="all">All accounts</option>
-          {ACCOUNTS.map((a) => (
-            <option key={a.value} value={a.value}>{a.label}</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.label}</option>
           ))}
         </select>
         {budgetData && budgetData.length > 0 && (
@@ -561,7 +561,7 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
                             borderRadius: '8px',
                             fontSize: '11px',
                             fontWeight: '500',
-                            ...getAccountBadgeStyle(item.account)
+                            ...getAccountBadgeStyle(item.account, accounts)
                           }}>
                             {item.account}
                           </span>
@@ -661,7 +661,7 @@ const Dashboard = ({ transactions, categories, getColor, fmt, getFiltered, getAl
                             borderRadius: '8px',
                             fontSize: '11px',
                             fontWeight: '500',
-                            ...getAccountBadgeStyle(row.account)
+                            ...getAccountBadgeStyle(row.account, accounts)
                           }}
                         >
                           {row.account}

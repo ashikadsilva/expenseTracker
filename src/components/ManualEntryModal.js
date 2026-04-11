@@ -1,18 +1,26 @@
-import React, { useState } from 'react';
-import { ACCOUNTS } from '../constants/accounts';
+import React, { useState, useEffect } from 'react';
+import { defaultAccountId } from '../utils/accounts';
 
-const ManualEntryModal = ({ show, onClose, onSubmit, categories, onAddCategory }) => {
+const ManualEntryModal = ({ show, onClose, onSubmit, categories, accounts, onAddCategory }) => {
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     amount: '',
     category: '',
     description: '',
     type: 'expense',
-    account: 'Canara',
+    account: defaultAccountId(accounts),
     referenceNumber: '',
     transactionType: 'debit',
     paymentMethod: 'cash'
   });
+
+  useEffect(() => {
+    const d = defaultAccountId(accounts);
+    setFormData((prev) => {
+      if (accounts.some((a) => a.id === prev.account)) return prev;
+      return { ...prev, account: d };
+    });
+  }, [accounts]);
 
   const getAvailableCategories = () => {
     if (!categories || !categories[formData.type]) return [];
@@ -37,7 +45,7 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories, onAddCategory }
       category: '',
       description: '',
       type: 'expense',
-      account: 'Canara',
+      account: defaultAccountId(accounts),
       referenceNumber: '',
       transactionType: 'debit',
       paymentMethod: 'cash'
@@ -185,9 +193,13 @@ const ManualEntryModal = ({ show, onClose, onSubmit, categories, onAddCategory }
               value={formData.account}
               onChange={handleChange}
             >
-              {ACCOUNTS.map((a) => (
-                <option key={a.value} value={a.value}>{a.label}</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
               ))}
+              {formData.account &&
+              !accounts.some((a) => a.id === formData.account) ? (
+                <option value={formData.account}>{formData.account} (legacy)</option>
+              ) : null}
             </select>
           </div>
 

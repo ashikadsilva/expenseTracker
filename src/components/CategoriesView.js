@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { ACCOUNTS } from '../constants/accounts';
 
-const CategoriesView = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths }) => {
+const CategoriesView = ({ transactions, categories, accounts, getColor, fmt, getFiltered, getAllMonths }) => {
   const [filters, setFilters] = useState({ month: 'all', account: 'all' });
 
   const data = getFiltered(filters).filter(t => t.type === 'expense');
@@ -29,8 +28,8 @@ const CategoriesView = ({ transactions, categories, getColor, fmt, getFiltered, 
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
         >
           <option value="all">All accounts</option>
-          {ACCOUNTS.map((a) => (
-            <option key={a.value} value={a.value}>{a.label}</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.label}</option>
           ))}
         </select>
       </div>
