@@ -63,10 +63,23 @@ function getClient() {
   if (!supabaseClient) {
     supabaseClient = createClient(
       process.env.REACT_APP_SUPABASE_URL.trim(),
-      process.env.REACT_APP_SUPABASE_ANON_KEY.trim()
+      process.env.REACT_APP_SUPABASE_ANON_KEY.trim(),
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          storageKey: 'expense-tracker-supabase-auth',
+        },
+      }
     );
   }
   return supabaseClient;
+}
+
+/** Same singleton as persistence; use for Auth UI. */
+export function getSupabaseClient() {
+  return getClient();
 }
 
 function readLocalStorage() {
@@ -91,17 +104,19 @@ function writeLocalStorage(transactions, categories, budgetData) {
 }
 
 /**
- * Load from Supabase when configured, else from localStorage.
+ * Load from Supabase when configured and userId is set (signed-in user), else localStorage.
+ * When cloud is enabled but userId is omitted, skips cloud (used only when auth is not required).
  * New visitors get default categories and empty transactions/budget.
+ * @param {string | undefined} userId - Supabase auth user id (uuid) for per-user row key.
  */
-export async function loadAppData() {
+export async function loadAppData(userId) {
   const client = getClient();
 
-  if (client) {
+  if (client && userId) {
     const { data, error } = await client
       .from('expense_tracker_data')
       .select('transactions,categories,budget_data')
-      .eq('id', 'main')
+      .eq('id', userId)
       .maybeSingle();
 
     if (error) {
@@ -112,6 +127,36 @@ export async function loadAppData() {
       const budgetData = Array.isArray(data.budget_data) ? data.budget_data : [];
       writeLocalStorage(transactions, categories, budgetData);
       return { transactions, categories, budgetData };
+    } else {
+      const local = readLocalStorage();
+      const categories = local.categories
+        ? normalizeCategories(local.categories)
+        : normalizeCategories(null);
+      const hasAny =
+        (local.transactions && local.transactions.length > 0) ||
+        (local.budgetData && local.budgetData.length > 0) ||
+        (local.categories &&
+          (local.categories.expense?.length || local.categories.income?.length));
+      if (hasAny) {
+        const out = {
+          transactions: Array.isArray(local.transactions) ? local.transactions : [],
+          categories,
+          budgetData: Array.isArray(local.budgetData) ? local.budgetData : [],
+        };
+        writeLocalStorage(out.transactions, out.categories, out.budgetData);
+        return out;
+      }
+      const defaults = {
+        transactions: [],
+        categories: normalizeCategories(null),
+        budgetData: [],
+      };
+      writeLocalStorage(
+        defaults.transactions,
+        defaults.categories,
+        defaults.budgetData
+      );
+      return defaults;
     }
   }
 
@@ -137,16 +182,20 @@ export async function loadAppData() {
   };
 }
 
-/** Persist to localStorage and Supabase (when configured). */
-export async function saveAppData(transactions, categories, budgetData) {
+/**
+ * Persist to localStorage and Supabase when configured.
+ * Cloud upsert runs only for a signed-in user (userId).
+ * @param {string | undefined} userId - Supabase auth user id for row primary key.
+ */
+export async function saveAppData(transactions, categories, budgetData, userId) {
   writeLocalStorage(transactions, categories, budgetData);
 
   const client = getClient();
-  if (!client) return;
+  if (!client || !userId) return;
 
   const { error } = await client.from('expense_tracker_data').upsert(
     {
-      id: 'main',
+      id: userId,
       transactions,
       categories,
       budget_data: budgetData,

@@ -17,12 +17,14 @@ const ManageCategories = ({ categories, openCatModal, deleteCat }) => {
           <div key={c.name} className="cat-item">
             <div className="cat-dot" style={{ background: c.color }}></div>
             <span className="cat-item-name">{c.name}</span>
-            <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'expense')}>
-              <IconPencil />
-            </button>
-            <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'expense')}>
-              <IconTrash />
-            </button>
+            <div className="cat-item-actions">
+              <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'expense')}>
+                <IconPencil />
+              </button>
+              <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'expense')}>
+                <IconTrash />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -35,12 +37,14 @@ const ManageCategories = ({ categories, openCatModal, deleteCat }) => {
           <div key={c.name} className="cat-item">
             <div className="cat-dot" style={{ background: c.color }}></div>
             <span className="cat-item-name">{c.name}</span>
-            <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'income')}>
-              <IconPencil />
-            </button>
-            <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'income')}>
-              <IconTrash />
-            </button>
+            <div className="cat-item-actions">
+              <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'income')}>
+                <IconPencil />
+              </button>
+              <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'income')}>
+                <IconTrash />
+              </button>
+            </div>
           </div>
         ))}
       </div>

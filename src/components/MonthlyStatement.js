@@ -150,14 +150,15 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = []
     return buildCategoryRowsFromTransactions(transactions, item.month, item.year, acct, type);
   };
 
+  const INCOME_DOT = ['#3B6D11', '#185FA5', '#534AB7', '#0F6E56', '#BA7517'];
+
   const renderStatementCard = (item, isCombined = false) => {
     const startBalance = isCombined ? item.combinedStartBalance : (item.start_balance || 0);
     const endBalance = isCombined ? item.combinedEndBalance : (item.end_balance || 0);
     const totalIncome = isCombined ? item.combinedIncome : (item.total_income_actual || 0);
     const totalExpenses = isCombined ? item.combinedExpenses : (item.total_expenses_actual || 0);
     const difference = endBalance - startBalance;
-    
-    // Enhanced analysis data
+
     const netSavings = isCombined ? item.combinedNetSavings : (item.net_savings || 0);
     const calculatedEndBalance = startBalance + netSavings;
     const balanceVariance = endBalance - calculatedEndBalance;
@@ -167,367 +168,189 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = []
     const expenseCategories = resolveStatementCategories(item, isCombined, 'expense');
     const incomeCategories = resolveStatementCategories(item, isCombined, 'income');
 
+    const flow = endBalance - startBalance;
+    const combinedPositive = flow >= 0;
+    const indFlow = item.saved_this_month ?? flow;
+    const indPositive = indFlow >= 0;
+    const savingsPill = isCombined ? (
+      <span className={`stmt-savings-pill ${combinedPositive ? 'stmt-savings-pill--up' : 'stmt-savings-pill--down'}`}>
+        {combinedPositive ? 'Increase in total savings' : 'Decrease in total savings'}: {fmtSigned(flow)}
+      </span>
+    ) : (
+      <span className={`stmt-savings-pill ${indPositive ? 'stmt-savings-pill--up' : 'stmt-savings-pill--down'}`}>
+        {item.savings_label || (indPositive ? 'Increase in total savings' : 'Decrease in total savings')}: {fmtSigned(indFlow)}
+      </span>
+    );
+
+    const renderBarColumn = (rows, kind) => {
+      const filtered = rows
+        .filter((cat) => Number(cat.actual) > 0)
+        .sort((a, b) => Number(b.actual) - Number(a.actual));
+      const max = Math.max(...filtered.map((c) => Number(c.actual)), 1);
+      if (!filtered.length) {
+        return (
+          <div className="empty" style={{ padding: '1rem', fontSize: '12px' }}>
+            {kind === 'expense' ? 'No expense data' : 'No income data'}
+          </div>
+        );
+      }
+      return filtered.map((cat, i) => {
+        const w = (Number(cat.actual) / max) * 100;
+        const dot =
+          kind === 'expense'
+            ? CAT_COLORS[i % CAT_COLORS.length]
+            : INCOME_DOT[i % INCOME_DOT.length];
+        return (
+          <div key={cat.category} className="stmt-cat-row">
+            <span className="stmt-cat-name" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dot, flexShrink: 0 }} />
+              {cat.category}
+            </span>
+            <div className="stmt-bar-track">
+              <div className="stmt-bar-fill" style={{ width: `${w}%`, background: dot }} />
+            </div>
+            <div className="stmt-cat-amt-wrap">
+              <div className={`stmt-cat-amt ${kind === 'expense' ? 'stmt-cat-amt--exp' : 'stmt-cat-amt--inc'}`}>
+                {fmt(cat.actual)}
+              </div>
+              <div className="stmt-cat-meta">
+                Plan {fmt(cat.planned)} · Diff {fmtSigned(cat.diff)}
+                {Number(cat.planned) ? ` · ${cat.diff >= 0 ? '+' : ''}${Math.abs(cat.diff / cat.planned * 100).toFixed(1)}% of plan` : ''}
+              </div>
+            </div>
+          </div>
+        );
+      });
+    };
+
     return (
-      <div key={isCombined ? `${item.month}-${item.year}` : item.sheet} 
-           style={{
-             backgroundColor: 'var(--color-background-primary)',
-             border: '0.5px solid var(--color-border-tertiary)',
-             borderRadius: '12px',
-             padding: '1rem',
-             marginBottom: '16px'
-           }}>
-        
-        {/* Header */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '12px',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          <div>
-            <span style={{ fontSize: '14px', fontWeight: '500' }}>
-              {isCombined ? `${item.month} ${item.year} (Combined)` : `${item.month} ${item.year}`}
+      <div key={isCombined ? `${item.month}-${item.year}` : item.sheet} className="stmt-card">
+        <div className="stmt-head">
+          <div className="stmt-head-left">
+            <span className="stmt-month-label">
+              {isCombined ? `${item.month} ${item.year}` : `${item.month} ${item.year}`}
             </span>
             {!isCombined && (
-              <span style={{
-                marginLeft: '8px',
-                padding: '2px 8px',
-                borderRadius: '10px',
-                fontSize: '11px',
-                fontWeight: '500',
-                ...getAccountBadgeStyle(item.account)
-              }}>
+              <span
+                style={{
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  ...getAccountBadgeStyle(item.account)
+                }}
+              >
                 {item.account}
               </span>
             )}
+            {isCombined && (
+              <span
+                style={{
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  background: '#E8F1FB',
+                  color: '#185FA5'
+                }}
+              >
+                Combined
+              </span>
+            )}
           </div>
-          {!isCombined && item.savings_label && (
-            <span style={{
-              padding: '2px 8px',
-              borderRadius: '10px',
-              fontSize: '11px',
-              fontWeight: '500',
-              backgroundColor: item.saved_this_month >= 0 ? '#EAF3DE' : '#FCEBEB',
-              color: item.saved_this_month >= 0 ? '#3B6D11' : '#A32D2D'
-            }}>
-              {item.savings_label}: {fmtSigned(item.saved_this_month)}
-            </span>
-          )}
+          {savingsPill}
         </div>
 
-        {/* Summary Cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-          gap: '8px',
-          marginBottom: '12px'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--color-background-secondary)',
-            borderRadius: '8px',
-            padding: '0.875rem'
-          }}>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              Starting balance
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: '#185FA5' }}>
-              {fmt(startBalance)}
-            </div>
+        <div className="stmt-metrics">
+          <div className="stmt-metric">
+            <div className="stmt-metric-label">Start balance</div>
+            <div className="stmt-metric-val stmt-metric-val--blue">{fmt(startBalance)}</div>
           </div>
-          
-          <div style={{
-            backgroundColor: 'var(--color-background-secondary)',
-            borderRadius: '8px',
-            padding: '0.875rem'
-          }}>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              Total income
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: '#3B6D11' }}>
-              {fmt(totalIncome)}
-            </div>
+          <div className="stmt-metric">
+            <div className="stmt-metric-label">End balance</div>
+            <div className="stmt-metric-val stmt-metric-val--green">{fmt(endBalance)}</div>
           </div>
-          
-          <div style={{
-            backgroundColor: 'var(--color-background-secondary)',
-            borderRadius: '8px',
-            padding: '0.875rem'
-          }}>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              Total spent
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: '#A32D2D' }}>
-              {fmt(totalExpenses)}
-            </div>
+          <div className="stmt-metric">
+            <div className="stmt-metric-label">Total spent</div>
+            <div className="stmt-metric-val stmt-metric-val--red">{fmt(totalExpenses)}</div>
           </div>
-          
-          <div style={{
-            backgroundColor: 'var(--color-background-secondary)',
-            borderRadius: '8px',
-            padding: '0.875rem'
-          }}>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              Ending balance
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: endBalance >= startBalance ? '#3B6D11' : '#A32D2D' }}>
-              {fmt(endBalance)}
-            </div>
+          <div className="stmt-metric">
+            <div className="stmt-metric-label">Total income</div>
+            <div className="stmt-metric-val stmt-metric-val--green">{fmt(totalIncome)}</div>
           </div>
-          
-          <div style={{
-            backgroundColor: 'var(--color-background-secondary)',
-            borderRadius: '8px',
-            padding: '0.875rem'
-          }}>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-              Difference
-            </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: difference >= 0 ? '#3B6D11' : '#A32D2D' }}>
+        </div>
+
+        <div className="stmt-metric-secondary">
+          <div className="stmt-metric" style={{ background: 'var(--color-background-secondary)' }}>
+            <div className="stmt-metric-label">Balance change (end − start)</div>
+            <div className={`stmt-metric-val ${difference >= 0 ? 'stmt-metric-val--green' : 'stmt-metric-val--red'}`}>
               {fmtSigned(difference)}
             </div>
           </div>
-          
           {!isCombined && item.savings_pct !== undefined && (
-            <div style={{
-              backgroundColor: 'var(--color-background-secondary)',
-              borderRadius: '8px',
-              padding: '0.875rem'
-            }}>
-              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                Savings %
-              </div>
-              <div style={{ fontSize: '15px', fontWeight: '500', color: item.saved_this_month >= 0 ? '#3B6D11' : '#A32D2D' }}>
+            <div className="stmt-metric" style={{ background: 'var(--color-background-secondary)' }}>
+              <div className="stmt-metric-label">Savings %</div>
+              <div className={`stmt-metric-val ${item.saved_this_month >= 0 ? 'stmt-metric-val--green' : 'stmt-metric-val--red'}`}>
                 {pct(item.savings_pct)}
               </div>
             </div>
           )}
         </div>
 
-        {/* Issues and Analysis */}
         {issues && issues.length > 0 && (
-          <div style={{ marginBottom: '12px' }}>
-            <div style={{
-              backgroundColor: '#FFF3CD',
-              border: '1px solid #FFA500',
-              borderRadius: '8px',
-              padding: '12px',
-              marginBottom: '8px'
-            }}>
-              <div style={{ fontSize: '12px', fontWeight: '500', color: '#D32F2F', marginBottom: '8px' }}>
-                ⚠️ Budget Analysis Issues Detected
-              </div>
-              <div style={{ fontSize: '11px', color: '#D32F2F' }}>
-                {issues.map((issue, index) => (
-                  <div key={index} style={{ marginBottom: '4px' }}>
-                    <strong>{issue.type.replace('_', ' ').toUpperCase()}:</strong> {issue.message}
-                  </div>
-                ))}
-              </div>
+          <div className="stmt-panel stmt-panel--warn">
+            <div style={{ fontSize: '12px', fontWeight: '600', color: '#8a5a00', marginBottom: '8px' }}>
+              Budget analysis issues
+            </div>
+            <div style={{ fontSize: '11px', color: '#5c4a00' }}>
+              {issues.map((issue, index) => (
+                <div key={index} style={{ marginBottom: '4px' }}>
+                  <strong>{issue.type.replace('_', ' ').toUpperCase()}:</strong> {issue.message}
+                </div>
+              ))}
             </div>
           </div>
         )}
-        
-        {/* Balance Consistency Check */}
+
         {!isBalanceConsistent && (
-          <div style={{
-            backgroundColor: '#E3F2FD',
-            border: '1px solid #1976D2',
-            borderRadius: '8px',
-            padding: '12px',
-            marginBottom: '12px'
-          }}>
-            <div style={{ fontSize: '12px', fontWeight: '500', color: '#1976D2', marginBottom: '8px' }}>
-              📊 Balance Consistency Check
+          <div className="stmt-panel stmt-panel--info">
+            <div style={{ fontSize: '12px', fontWeight: '600', color: '#185FA5', marginBottom: '8px' }}>
+              Balance consistency check
             </div>
-            <div style={{ fontSize: '11px', color: '#1976D2' }}>
+            <div style={{ fontSize: '11px', color: '#2c5282' }}>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Starting Balance:</strong> {fmt(startBalance)}
+                <strong>Starting balance:</strong> {fmt(startBalance)}
               </div>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Net Savings:</strong> {fmt(netSavings)}
+                <strong>Net savings:</strong> {fmt(netSavings)}
               </div>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Calculated End Balance:</strong> {fmt(calculatedEndBalance)}
+                <strong>Calculated end balance:</strong> {fmt(calculatedEndBalance)}
               </div>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Actual End Balance:</strong> {fmt(endBalance)}
+                <strong>Actual end balance:</strong> {fmt(endBalance)}
               </div>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Variance:</strong> 
+                <strong>Variance:</strong>{' '}
                 <span style={{ color: Math.abs(balanceVariance) < 0.01 ? '#3B6D11' : '#A32D2D' }}>
                   {fmtSigned(balanceVariance)}
                 </span>
               </div>
-              <div style={{ fontSize: '10px', color: '#1976D2', marginTop: '8px' }}>
-                {Math.abs(balanceVariance) < 0.01 ? '✅ Balance is consistent' : '⚠️ Balance variance detected'}
+              <div style={{ fontSize: '10px', marginTop: '8px' }}>
+                {Math.abs(balanceVariance) < 0.01 ? 'Balance matches.' : 'Variance detected — review sheet vs. categories.'}
               </div>
             </div>
           </div>
         )}
-        
-        {/* Expense Categories */}
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{
-            fontSize: '11px',
-            fontWeight: '500',
-            color: 'var(--color-text-secondary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-            marginBottom: '8px'
-          }}>
-            Expense Categories
-          </div>
-          <div style={{
-            border: '0.5px solid var(--color-border-tertiary)',
-            borderRadius: '12px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1fr 1fr 1fr',
-              padding: '7px 12px',
-              backgroundColor: 'var(--color-background-secondary)',
-              fontSize: '11px',
-              fontWeight: '500',
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.4px'
-            }}>
-              <span>Category</span>
-              <span style={{ textAlign: 'right' }}>Planned</span>
-              <span style={{ textAlign: 'right' }}>Actual</span>
-              <span style={{ textAlign: 'right' }}>Difference</span>
-            </div>
-            {expenseCategories
-              .filter((cat) => Number(cat.actual) > 0)
-              .sort((a, b) => Number(b.actual) - Number(a.actual))
-              .map((cat, i) => (
-                <div key={cat.category} style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr',
-                  padding: '8px 12px',
-                  borderTop: '0.5px solid var(--color-border-tertiary)',
-                  fontSize: '13px',
-                  alignItems: 'center'
-                }}>
-                  <span style={{ fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: CAT_COLORS[i % CAT_COLORS.length],
-                      flexShrink: 0
-                    }}></span>
-                    {cat.category}
-                  </span>
-                  <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>
-                    {fmt(cat.planned)}
-                  </span>
-                  <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>
-                    {fmt(cat.actual)}
-                  </span>
-                  <span style={{ textAlign: 'right', fontWeight: '500', color: cat.diff >= 0 ? '#3B6D11' : '#A32D2D' }}>
-                    <div>{fmtSigned(cat.diff)}</div>
-                    <div style={{ fontSize: '10px', fontWeight: '400', color: 'var(--color-text-secondary)' }}>
-                      ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
-                    </div>
-                  </span>
-                </div>
-              ))}
-            {expenseCategories.filter((cat) => Number(cat.actual) > 0).length === 0 && (
-              <div style={{
-                padding: '12px',
-                textAlign: 'center',
-                fontSize: '12px',
-                color: 'var(--color-text-secondary)'
-              }}>
-                No expense data
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Income Categories */}
-        <div>
-          <div style={{
-            fontSize: '11px',
-            fontWeight: '500',
-            color: 'var(--color-text-secondary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-            marginBottom: '8px'
-          }}>
-            Income Categories
+        <div className="stmt-split">
+          <div>
+            <div className="stmt-col-title">Expenses</div>
+            {renderBarColumn(expenseCategories, 'expense')}
           </div>
-          <div style={{
-            border: '0.5px solid var(--color-border-tertiary)',
-            borderRadius: '12px',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '2fr 1fr 1fr 1fr',
-              padding: '7px 12px',
-              backgroundColor: 'var(--color-background-secondary)',
-              fontSize: '11px',
-              fontWeight: '500',
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.4px'
-            }}>
-              <span>Category</span>
-              <span style={{ textAlign: 'right' }}>Planned</span>
-              <span style={{ textAlign: 'right' }}>Actual</span>
-              <span style={{ textAlign: 'right' }}>Difference</span>
-            </div>
-            {incomeCategories
-              .filter((cat) => Number(cat.actual) > 0)
-              .sort((a, b) => Number(b.actual) - Number(a.actual))
-              .map((cat, i) => (
-                <div key={cat.category} style={{
-                  display: 'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr',
-                  padding: '8px 12px',
-                  borderTop: '0.5px solid var(--color-border-tertiary)',
-                  fontSize: '13px',
-                  alignItems: 'center'
-                }}>
-                  <span style={{ fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: ['#3B6D11', '#185FA5', '#534AB7', '#0F6E56', '#BA7517'][i % 5],
-                      flexShrink: 0
-                    }}></span>
-                    {cat.category}
-                  </span>
-                  <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>
-                    {fmt(cat.planned)}
-                  </span>
-                  <span style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>
-                    {fmt(cat.actual)}
-                  </span>
-                  <span style={{ textAlign: 'right', fontWeight: '500', color: '#3B6D11' }}>
-                    <div>{fmtSigned(cat.diff)}</div>
-                    <div style={{ fontSize: '10px', fontWeight: '400', color: 'var(--color-text-secondary)' }}>
-                      ({cat.diff >= 0 ? '+' : ''}{cat.planned ? Math.abs(cat.diff / cat.planned * 100).toFixed(1) : 0}%)
-                    </div>
-                  </span>
-                </div>
-              ))}
-            {incomeCategories.filter((cat) => Number(cat.actual) > 0).length === 0 && (
-              <div style={{
-                padding: '12px',
-                textAlign: 'center',
-                fontSize: '12px',
-                color: 'var(--color-text-secondary)'
-              }}>
-                No income data
-              </div>
-            )}
+          <div>
+            <div className="stmt-col-title">Income</div>
+            {renderBarColumn(incomeCategories, 'income')}
           </div>
         </div>
       </div>
@@ -549,7 +372,7 @@ const MonthlyStatement = ({ budgetData, viewMode, setViewMode, transactions = []
   })();
 
   return (
-    <div>
+    <div className="section">
       {/* View Toggle */}
       <div style={{
         display: 'flex',

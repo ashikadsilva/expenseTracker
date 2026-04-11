@@ -9,11 +9,47 @@ import ImportTab from './components/ImportTab';
 import TransactionModal from './components/TransactionModal';
 import CategoryModal from './components/CategoryModal';
 import MonthlyStatement from './components/MonthlyStatement';
-import { loadAppData, saveAppData, DEFAULT_CATEGORIES } from './utils/persistence';
+import AuthScreen from './components/AuthScreen';
+import {
+  loadAppData,
+  saveAppData,
+  DEFAULT_CATEGORIES,
+  isCloudPersistenceEnabled,
+  getSupabaseClient,
+} from './utils/persistence';
+import { useWalkthrough } from './hooks/useWalkthrough';
 
 const PALETTE = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C','#633806'];
 
-const SHEET_MONTH_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
+/** Longer month names first so "march" is not read as "mar". */
+const SHEET_MONTH_RE =
+  /\b(january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i;
+
+const MONTH_TOKEN_TO_SHORT = {
+  january: 'Jan',
+  february: 'Feb',
+  march: 'Mar',
+  april: 'Apr',
+  may: 'May',
+  june: 'Jun',
+  july: 'Jul',
+  august: 'Aug',
+  september: 'Sep',
+  october: 'Oct',
+  november: 'Nov',
+  december: 'Dec',
+  jan: 'Jan',
+  feb: 'Feb',
+  mar: 'Mar',
+  apr: 'Apr',
+  jun: 'Jun',
+  jul: 'Jul',
+  aug: 'Aug',
+  sep: 'Sep',
+  oct: 'Oct',
+  nov: 'Nov',
+  dec: 'Dec'
+};
 
 /**
  * Sheet titles like "Canara-Summary-Aug" contain "summary" → substring "mar" would
@@ -29,19 +65,24 @@ function extractMonthYearFromSheetName(sheetName) {
   const monthMatch = normalized.match(SHEET_MONTH_RE);
   let month = 'Unknown';
   if (monthMatch) {
-    const m = monthMatch[1].toLowerCase();
-    month = m.charAt(0).toUpperCase() + m.slice(1);
+    const key = monthMatch[1].toLowerCase();
+    month = MONTH_TOKEN_TO_SHORT[key] || 'Unknown';
   }
   const yearMatch = raw.match(/\b(20\d{2})\b/);
   let year = yearMatch ? yearMatch[1] : '2025';
   if (!yearMatch && monthMatch) {
     const m = monthMatch[1].toLowerCase();
-    if (['jan', 'feb', 'mar'].includes(m) && !lower.includes('2025')) year = '2026';
+    if (['jan', 'feb', 'mar', 'january', 'february', 'march'].includes(m) && !lower.includes('2025')) year = '2026';
   }
   return { month, year };
 }
 
 function App() {
+  const cloudAuth = isCloudPersistenceEnabled();
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(cloudAuth);
+  const user = session?.user ?? null;
+
   const [categories, setCategories] = useState({ expense: [], income: [] });
   const [transactions, setTransactions] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -60,12 +101,44 @@ function App() {
   const [viewMode, setViewMode] = useState('individual'); // 'individual' or 'combined'
   const [dataReady, setDataReady] = useState(false);
 
-  // Load from Supabase (if configured) or localStorage once on mount
   useEffect(() => {
+    if (!cloudAuth) {
+      setAuthLoading(false);
+      return;
+    }
+    const client = getSupabaseClient();
+    if (!client) {
+      setAuthLoading(false);
+      return;
+    }
+    let mounted = true;
+    client.auth.getSession().then(({ data: { session: s } }) => {
+      if (mounted) {
+        setSession(s);
+        setAuthLoading(false);
+      }
+    });
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+    });
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [cloudAuth]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (cloudAuth && !user) return;
+
     let cancelled = false;
+    setDataReady(false);
+
     (async () => {
       try {
-        const data = await loadAppData();
+        const data = await loadAppData(cloudAuth ? user?.id : undefined);
         if (cancelled) return;
         setCategories(data.categories);
         setTransactions(data.transactions);
@@ -87,13 +160,19 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authLoading, cloudAuth, user?.id]);
 
-  // After first load, persist every change (localStorage + cloud)
   useEffect(() => {
     if (!dataReady) return;
-    saveAppData(transactions, categories, budgetData);
-  }, [transactions, categories, budgetData, dataReady]);
+    saveAppData(
+      transactions,
+      categories,
+      budgetData,
+      cloudAuth ? user?.id : undefined
+    );
+  }, [transactions, categories, budgetData, dataReady, cloudAuth, user?.id]);
+
+  useWalkthrough(user?.id, Boolean(dataReady && cloudAuth && user));
 
   const getColor = (cat) => {
     const all = [...categories.expense, ...categories.income];
@@ -921,17 +1000,64 @@ Balance Information Found:
     event.target.value = '';
   };
 
+  const signOut = async () => {
+    const client = getSupabaseClient();
+    if (client) await client.auth.signOut();
+    window.location.reload();
+  };
+
+  if (authLoading) {
+    return (
+      <div className="auth-screen">
+        <p className="auth-muted">Loading…</p>
+      </div>
+    );
+  }
+
+  if (cloudAuth && !user) {
+    return <AuthScreen />;
+  }
+
+  if (!dataReady) {
+    return (
+      <div className="auth-screen">
+        <p className="auth-muted">Loading your data…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="app app-relative">
-      <div className="topbar">
+      <div className="topbar" data-tour="topbar">
         <div className="topbar-left">
           <span className="topbar-title">My expense tracker</span>
           <span className="topbar-sub">Canara, Union, other banks</span>
         </div>
         <div className="topbar-right">
-          <button className="btn btn-success" onClick={triggerUpload}>Import XLSX</button>
-          <button className="btn btn-secondary" onClick={exportCSV}>Export CSV</button>
-          <button className="btn btn-primary" onClick={() => setShowAddEntryModal(true)}>+ Add Entry</button>
+          <button
+            type="button"
+            className="btn btn-success"
+            data-tour="btn-import"
+            onClick={triggerUpload}
+          >
+            Import XLSX
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={exportCSV}>
+            Export CSV
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-tour="btn-add-entry"
+            onClick={() => setShowAddEntryModal(true)}
+          >
+            + Add Entry
+          </button>
+          {cloudAuth ? (
+            <button type="button" className="btn btn-secondary" onClick={signOut}>
+              Sign out
+            </button>
+          ) : null}
         </div>
       </div>
       <input 
@@ -942,8 +1068,14 @@ Balance Information Found:
         onChange={handleXLSX}
       />
 
-      <div className="tabs">
-        <div className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>Dashboard</div>
+      <div className="tabs" data-tour="tabs">
+        <div
+          className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`}
+          data-tour="tab-dashboard"
+          onClick={() => setActiveTab('dashboard')}
+        >
+          Dashboard
+        </div>
         <div className={`tab ${activeTab === 'transactions' ? 'active' : ''}`} onClick={() => setActiveTab('transactions')}>Transactions</div>
         <div className={`tab ${activeTab === 'categories-view' ? 'active' : ''}`} onClick={() => setActiveTab('categories-view')}>Categories</div>
         <div className={`tab ${activeTab === 'manage-cats' ? 'active' : ''}`} onClick={() => setActiveTab('manage-cats')}>Manage categories</div>

@@ -24,28 +24,24 @@ CREATE TABLE expense_tracker_data (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Insert default data
-INSERT INTO expense_tracker_data (id, transactions, categories, budget_data)
-VALUES (
-  'main',
-  '[]',
-  '{"expense": [], "income": []}',
-  '[]'
-);
+-- No seed row required: the app upserts a row per user on first save (id = Supabase user id).
 
--- Allow the browser app (anon key) to read and update this single row.
--- For a household app this is usually enough; add auth + RLS per-user later if needed.
-ALTER TABLE expense_tracker_data ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "expense_tracker_anon_rw"
-  ON expense_tracker_data
-  FOR ALL
-  TO anon
-  USING (true)
-  WITH CHECK (true);
+-- Per-user app (recommended): each signed-in user has one row where id = their auth user id (uuid text).
+-- After deploying the app with email/password auth, replace wide-open anon policies with the script in
+-- `supabase/per-user-rls.sql` (authenticated users only; row id must match auth.uid()).
+--
+-- Legacy single-row demo (not safe on a public URL — anyone with the anon key can read/write):
+-- ALTER TABLE expense_tracker_data ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "expense_tracker_anon_rw" ON expense_tracker_data FOR ALL TO anon USING (true) WITH CHECK (true);
 ```
 
-If you prefer **not** to use RLS, you can instead run `ALTER TABLE expense_tracker_data DISABLE ROW LEVEL SECURITY;` (less secure on shared projects).
+### Email sign-in (production)
+
+1. In Supabase: **Authentication → Providers → Email** — enable Email, configure whether **Confirm email** is required.
+2. Run **`supabase/per-user-rls.sql`** in the SQL Editor (drops the old anon policy and adds `authenticated`-only policies).
+3. You can remove the old `'main'` seed row if you no longer need it, or keep it unused.
+
+If you prefer **not** to use RLS during local experiments, you can run `ALTER TABLE expense_tracker_data DISABLE ROW LEVEL SECURITY;` (not recommended for a public deploy).
 
 ### 3. Set Environment Variables
 
@@ -81,19 +77,19 @@ netlify deploy --prod --dir=build
 ## How It Works
 
 ### Hybrid Persistence Strategy
-- **LocalStorage**: Fast, offline-first storage
-- **Cloud Storage**: Persistent, shared across all users
-- **Automatic Sync**: Changes saved to both locations
+- **LocalStorage**: Fast, offline-first copy in the browser
+- **Cloud Storage**: When Supabase env vars are set, **email/password sign-in** is required and each account syncs to its **own** row (RLS in `supabase/per-user-rls.sql`)
+- **Without Supabase env vars**: the app runs locally only (no sign-in screen)
 
 ### Data Flow
-1. **App Loads**: Checks cloud first, falls back to localStorage
-2. **User Adds Entry**: Saves to localStorage immediately, then syncs to cloud
-3. **Cloud Sync**: All users see latest data on next page load
+1. **App loads**: After sign-in, loads the signed-in user’s row from Supabase; otherwise loads from localStorage only
+2. **User edits data**: Writes localStorage and, when signed in, upserts the user’s cloud row
+3. **New account**: First session can reuse existing browser local data once to seed the cloud row, then saves under your user id
 
 ### Benefits
-- **No Data Loss**: Data persists even if browser is cleared
-- **Multi-User**: All users see same data
-- **Offline Support**: Works offline, syncs when online
+- **No Data Loss**: Cloud backup per account when Supabase is configured
+- **Private by user**: RLS ensures users only access their own row
+- **Offline Support**: Local copy remains; cloud sync when online
 - **Instant Updates**: Local changes visible immediately
 
 ## Testing
