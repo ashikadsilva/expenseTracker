@@ -32,7 +32,20 @@ VALUES (
   '{"expense": [], "income": []}',
   '[]'
 );
+
+-- Allow the browser app (anon key) to read and update this single row.
+-- For a household app this is usually enough; add auth + RLS per-user later if needed.
+ALTER TABLE expense_tracker_data ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "expense_tracker_anon_rw"
+  ON expense_tracker_data
+  FOR ALL
+  TO anon
+  USING (true)
+  WITH CHECK (true);
 ```
+
+If you prefer **not** to use RLS, you can instead run `ALTER TABLE expense_tracker_data DISABLE ROW LEVEL SECURITY;` (less secure on shared projects).
 
 ### 3. Set Environment Variables
 
@@ -45,10 +58,15 @@ REACT_APP_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 #### For Netlify Deployment:
 1. Go to your Netlify site dashboard
-2. Site settings > Build & deploy > Environment
-3. Add these variables:
-   - `SUPABASE_URL`: https://your-project-id.supabase.co
-   - `SUPABASE_ANON_KEY`: your-supabase-anon-key
+2. Site settings > Build & deploy > Environment > Environment variables
+3. Add these variables (Create React App only exposes names starting with `REACT_APP_` to the browser):
+   - `REACT_APP_SUPABASE_URL` = `https://your-project-id.supabase.co`
+   - `REACT_APP_SUPABASE_ANON_KEY` = your Supabase **anon** public key
+
+4. **Redeploy** the site after saving variables (Environment > Trigger deploy), so the new build picks them up.
+
+Optional (only if you use Netlify Functions `get-data` / `save-data` instead of direct browser sync):
+   - `SUPABASE_URL` and `SUPABASE_ANON_KEY` for the serverless functions.
 
 ### 4. Deploy to Netlify
 ```bash

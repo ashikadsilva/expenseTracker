@@ -1,0 +1,410 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.sr-only{position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden}
+select{background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--color-text-primary);cursor:pointer;font-family:inherit}
+.tabs{display:flex;border-bottom:0.5px solid var(--color-border-tertiary);padding:0 1.25rem;margin-bottom:1.25rem}
+.tab{padding:9px 14px;font-size:13px;font-weight:500;cursor:pointer;color:var(--color-text-secondary);border-bottom:2px solid transparent;margin-bottom:-0.5px;background:none;border-top:none;border-left:none;border-right:none;font-family:inherit;white-space:nowrap}
+.tab.on{color:#185FA5;border-bottom:2px solid #185FA5}
+.mcard{background:var(--color-background-secondary);border-radius:8px;padding:0.875rem}
+.mlabel{font-size:11px;color:var(--color-text-secondary);margin-bottom:4px}
+.mval{font-size:20px;font-weight:500}
+.trow{display:grid;padding:8px 12px;border-top:0.5px solid var(--color-border-tertiary);align-items:center;font-size:13px}
+.thead{display:grid;padding:7px 12px;background:var(--color-background-secondary);font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.4px}
+.pbar{height:5px;background:var(--color-background-secondary);border-radius:3px;overflow:hidden;flex:1}
+.pinner{height:100%;border-radius:3px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.section-title{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;margin-top:1rem}
+.upload-zone{border:1.5px dashed var(--color-border-secondary);border-radius:12px;padding:2.5rem 1.5rem;text-align:center;cursor:pointer;margin-bottom:1rem}
+.upload-zone:hover{background:var(--color-background-secondary)}
+</style>
+
+<h2 class="sr-only">Monthly budget reader showing all data from your Excel file</h2>
+
+<div style="padding:1rem 1.25rem 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:1rem">
+    <div>
+      <div style="font-size:17px;font-weight:500;color:var(--color-text-primary)">Monthly budget reader</div>
+      <div style="font-size:12px;color:var(--color-text-secondary)" id="file-label">Showing data from Monthly_budget.xlsx</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <select id="sel-month" onchange="render()"></select>
+      <select id="sel-acc" onchange="render()">
+        <option value="all">Both accounts</option>
+        <option value="Canara">Canara Bank</option>
+        <option value="Union">Union Bank</option>
+      </select>
+      <label style="background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit">
+        ↑ Upload new file
+        <input type="file" accept=".xlsx,.xls" style="display:none" onchange="loadFile(event)"/>
+      </label>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab on" onclick="switchTab('overview',this)">Overview</button>
+  <button class="tab" onclick="switchTab('categories',this)">Categories</button>
+  <button class="tab" onclick="switchTab('trend',this)">Trend</button>
+  <button class="tab" onclick="switchTab('sheets',this)">All sheets</button>
+</div>
+
+<div style="padding:0 1.25rem 1.5rem">
+  <div id="tab-overview"></div>
+  <div id="tab-categories" style="display:none"></div>
+  <div id="tab-trend" style="display:none"></div>
+  <div id="tab-sheets" style="display:none"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const CAT_COLORS = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C'];
+let chartInst1=null, chartInst2=null;
+
+const RAW_DATA = [{"sheet":"Canara-Summary-Aug","account":"Canara","month":"Aug","year":"2025","starting_balance":115040,"start_balance":115040,"end_balance":59487.1,"saved_this_month":-55552.9,"savings_label":"Decrease in total savings","savings_pct":-48.29,"total_expenses_actual":86100.9,"total_income_actual":30548,"expense_categories":[{"category":"Food","planned":0,"actual":1175},{"category":"Gifts","planned":0,"actual":4045},{"category":"Health/medical","planned":0,"actual":0},{"category":"Home","planned":950,"actual":540},{"category":"Transportation","planned":0,"actual":1200},{"category":"Shopping","planned":0,"actual":1416},{"category":"Other","planned":0,"actual":994},{"category":"SIP","planned":0,"actual":4000},{"category":"Recharge","planned":0,"actual":434.9},{"category":"Investment","planned":0,"actual":60000},{"category":"Union","planned":0,"actual":10296},{"category":"Mom","planned":0,"actual":2000}],"income_categories":[{"category":"Paycheck","planned":0,"actual":30000},{"category":"Credited Amount","planned":0,"actual":548}]},
+{"sheet":"Union Aug Summary","account":"Union","month":"Aug","year":"2025","starting_balance":1104.54,"start_balance":1104.54,"end_balance":15561.75,"saved_this_month":14457.21,"savings_label":"Increase in total savings","savings_pct":1308.89,"total_expenses_actual":10868.79,"total_income_actual":25326,"expense_categories":[{"category":"Food","planned":0,"actual":1508.25},{"category":"Home","planned":0,"actual":1212},{"category":"Transportation","planned":0,"actual":130},{"category":"Shopping","planned":0,"actual":1568.54},{"category":"Other","planned":0,"actual":150},{"category":"Rent","planned":0,"actual":6300}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":25326}]},
+{"sheet":"Union Sep Summary","account":"Union","month":"Sep","year":"2025","starting_balance":15561.75,"start_balance":15561.75,"end_balance":1473.49,"saved_this_month":-14088.26,"savings_label":"Decrease in total savings","savings_pct":-90.53,"total_expenses_actual":22418.26,"total_income_actual":8330,"expense_categories":[{"category":"Food","planned":0,"actual":2671},{"category":"Health/medical","planned":0,"actual":765},{"category":"Home","planned":0,"actual":2406},{"category":"Transportation","planned":0,"actual":750},{"category":"Shopping","planned":0,"actual":2476.12},{"category":"Other","planned":0,"actual":3838.14},{"category":"Rent","planned":0,"actual":6300},{"category":"Recharge","planned":0,"actual":212},{"category":"Union","planned":0,"actual":3000}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":8330}]},
+{"sheet":"Canara Sep Summary","account":"Canara","month":"Sep","year":"2025","starting_balance":58646.6,"start_balance":58646.6,"end_balance":54621.8,"saved_this_month":-4024.8,"savings_label":"Decrease in total savings","savings_pct":-6.86,"total_expenses_actual":50150.8,"total_income_actual":46126,"expense_categories":[{"category":"Food","planned":0,"actual":1076},{"category":"Gifts","planned":0,"actual":450},{"category":"Health/medical","planned":0,"actual":3180},{"category":"Transportation","planned":0,"actual":800},{"category":"Shopping","planned":0,"actual":9460.1},{"category":"Other","planned":0,"actual":1340},{"category":"SIP","planned":0,"actual":2500},{"category":"Recharge","planned":0,"actual":684.7},{"category":"Union","planned":0,"actual":30660}],"income_categories":[{"category":"Paycheck","planned":0,"actual":30000},{"category":"Credited Amount","planned":0,"actual":16126}]},
+{"sheet":"Canara Oct Summary","account":"Canara","month":"Oct","year":"2025","starting_balance":53621.8,"start_balance":53621.8,"end_balance":20313.83,"saved_this_month":-33307.97,"savings_label":"Decrease in total savings","savings_pct":-62.11,"total_expenses_actual":36391.12,"total_income_actual":3083.15,"expense_categories":[{"category":"Food","planned":0,"actual":420},{"category":"Gifts","planned":0,"actual":3072.15},{"category":"Health/medical","planned":0,"actual":7900},{"category":"Home","planned":0,"actual":560},{"category":"Transportation","planned":0,"actual":500},{"category":"Shopping","planned":0,"actual":1456},{"category":"Travel","planned":0,"actual":5023.17},{"category":"Debt","planned":0,"actual":7100},{"category":"Other","planned":0,"actual":254},{"category":"SIP","planned":0,"actual":3500},{"category":"Recharge","planned":0,"actual":605.8},{"category":"Union","planned":0,"actual":6000}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":3077.15},{"category":"Reward","planned":0,"actual":6}]},
+{"sheet":"Union Oct Summary","account":"Union","month":"Oct","year":"2025","starting_balance":10977.28,"start_balance":10977.28,"end_balance":5801.47,"saved_this_month":-5175.81,"savings_label":"Decrease in total savings","savings_pct":-47.15,"total_expenses_actual":41709.81,"total_income_actual":36534,"expense_categories":[{"category":"Food","planned":0,"actual":2757.36},{"category":"Gifts","planned":0,"actual":702},{"category":"Health/medical","planned":0,"actual":85},{"category":"Home","planned":0,"actual":5720.2},{"category":"Transportation","planned":0,"actual":260},{"category":"Shopping","planned":0,"actual":1211},{"category":"Utilities","planned":0,"actual":22},{"category":"Travel","planned":0,"actual":4161},{"category":"Other","planned":0,"actual":20083.25},{"category":"Rent","planned":0,"actual":6300},{"category":"Recharge","planned":0,"actual":188},{"category":"Union","planned":0,"actual":220}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":36534}]},
+{"sheet":"Canara Summary Nov","account":"Canara","month":"Nov","year":"2025","starting_balance":20970.35,"start_balance":20970.35,"end_balance":32731.45,"saved_this_month":11761.1,"savings_label":"Increase in total savings","savings_pct":56.08,"total_expenses_actual":17920.7,"total_income_actual":29681.8,"expense_categories":[{"category":"Home","planned":0,"actual":361},{"category":"Transportation","planned":0,"actual":300},{"category":"Other","planned":0,"actual":8000},{"category":"SIP","planned":0,"actual":3501},{"category":"Recharge","planned":0,"actual":358.9},{"category":"Investment","planned":0,"actual":5000},{"category":"Union","planned":0,"actual":399.8}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":29681.8}]},
+{"sheet":"Union-Summary-Nov","account":"Union","month":"Nov","year":"2025","starting_balance":1084.68,"start_balance":1084.68,"end_balance":9141.47,"saved_this_month":8056.79,"savings_label":"Increase in total savings","savings_pct":742.78,"total_expenses_actual":33690.17,"total_income_actual":41746.96,"expense_categories":[{"category":"Food","planned":0,"actual":4451.37},{"category":"Gifts","planned":0,"actual":310},{"category":"Health/medical","planned":0,"actual":56},{"category":"Home","planned":0,"actual":3134},{"category":"Transportation","planned":0,"actual":500},{"category":"Shopping","planned":0,"actual":6841},{"category":"Travel","planned":0,"actual":800},{"category":"Other","planned":0,"actual":718},{"category":"Rent","planned":0,"actual":6300},{"category":"Recharge","planned":0,"actual":470},{"category":"Investment","planned":0,"actual":10000},{"category":"Union","planned":0,"actual":109.8}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":41746.96}]},
+{"sheet":"Union-Summary-Dec","account":"Union","month":"Dec","year":"2025","starting_balance":9141.38,"start_balance":9141.38,"end_balance":4990.88,"saved_this_month":-4150.5,"savings_label":"Decrease in total savings","savings_pct":-45.40,"total_expenses_actual":18750.5,"total_income_actual":14600,"expense_categories":[{"category":"Food","planned":0,"actual":2985.5},{"category":"Health/medical","planned":0,"actual":159},{"category":"Home","planned":0,"actual":3236},{"category":"Transportation","planned":0,"actual":585},{"category":"Shopping","planned":0,"actual":2354.3},{"category":"Utilities","planned":0,"actual":1020},{"category":"Other","planned":0,"actual":2060},{"category":"Rent","planned":0,"actual":6300},{"category":"Union","planned":0,"actual":50.7}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":14600}]},
+{"sheet":"Canara Summary Dec","account":"Canara","month":"Dec","year":"2025","starting_balance":32731.45,"start_balance":32731.45,"end_balance":7623.03,"saved_this_month":-25108.42,"savings_label":"Decrease in total savings","savings_pct":-76.71,"total_expenses_actual":29588.42,"total_income_actual":4480,"expense_categories":[{"category":"Food","planned":0,"actual":355.72},{"category":"Home","planned":0,"actual":205},{"category":"Transportation","planned":0,"actual":90},{"category":"Shopping","planned":0,"actual":1100},{"category":"Utilities","planned":0,"actual":19},{"category":"Debt","planned":0,"actual":8300},{"category":"Other","planned":0,"actual":4400},{"category":"SIP","planned":0,"actual":3500},{"category":"Recharge","planned":0,"actual":518.7},{"category":"Investment","planned":0,"actual":5000},{"category":"Union","planned":0,"actual":6100}],"income_categories":[{"category":"Interest","planned":0,"actual":178},{"category":"Credited Amount","planned":0,"actual":4300},{"category":"Reward","planned":0,"actual":2}]},
+{"sheet":"Canara Summary Jan","account":"Canara","month":"Jan","year":"2026","starting_balance":7623.03,"start_balance":7623.03,"end_balance":12732.26,"saved_this_month":5109.23,"savings_label":"Increase in total savings","savings_pct":67.02,"total_expenses_actual":24220.7,"total_income_actual":29329.93,"expense_categories":[{"category":"Food","planned":0,"actual":2050},{"category":"Home","planned":0,"actual":1213},{"category":"Transportation","planned":0,"actual":730},{"category":"Utilities","planned":0,"actual":460},{"category":"Debt","planned":0,"actual":7700.9},{"category":"Other","planned":0,"actual":3569},{"category":"SIP","planned":0,"actual":3000},{"category":"Recharge","planned":0,"actual":497.8},{"category":"Investment","planned":0,"actual":5000}],"income_categories":[{"category":"Interest","planned":0,"actual":91.14},{"category":"Credited Amount","planned":0,"actual":29236.79},{"category":"Reward","planned":0,"actual":2}]},
+{"sheet":"Union-Summary-Jan","account":"Union","month":"Jan","year":"2026","starting_balance":4990.77,"start_balance":4990.77,"end_balance":5624.97,"saved_this_month":634.2,"savings_label":"Increase in total savings","savings_pct":12.71,"total_expenses_actual":13249.8,"total_income_actual":13884,"expense_categories":[{"category":"Food","planned":0,"actual":2338.8},{"category":"Health/medical","planned":0,"actual":200},{"category":"Home","planned":0,"actual":3456},{"category":"Utilities","planned":0,"actual":955},{"category":"Rent","planned":0,"actual":6300}],"income_categories":[{"category":"Interest","planned":0,"actual":34},{"category":"Credited Amount","planned":0,"actual":13850}]},
+{"sheet":"Union-Summary-Feb","account":"Union","month":"Feb","year":"2026","starting_balance":5624.89,"start_balance":5624.89,"end_balance":5151.69,"saved_this_month":-473.2,"savings_label":"Decrease in total savings","savings_pct":-8.41,"total_expenses_actual":19063.2,"total_income_actual":18590,"expense_categories":[{"category":"Food","planned":0,"actual":1906.2},{"category":"Home","planned":0,"actual":2897},{"category":"Transportation","planned":0,"actual":1050},{"category":"Shopping","planned":0,"actual":1599},{"category":"Other","planned":0,"actual":311},{"category":"Rent","planned":0,"actual":6300},{"category":"Investment","planned":0,"actual":5000}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":18590}]},
+{"sheet":"Canara Summary Feb","account":"Canara","month":"Feb","year":"2026","starting_balance":12732.26,"start_balance":12732.26,"end_balance":5361.91,"saved_this_month":-7370.35,"savings_label":"Decrease in total savings","savings_pct":-57.89,"total_expenses_actual":11837.35,"total_income_actual":4467,"expense_categories":[{"category":"Food","planned":0,"actual":937.35},{"category":"Home","planned":0,"actual":2000},{"category":"Transportation","planned":0,"actual":1500},{"category":"Debt","planned":0,"actual":2400},{"category":"SIP","planned":0,"actual":5000}],"income_categories":[{"category":"Credited Amount","planned":0,"actual":4467}]}];
+
+let data = RAW_DATA;
+let activeTab = 'overview';
+
+function fmt(n){
+  if(n===null||n===undefined) return '—';
+  return '₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
+}
+function fmtSigned(n){
+  if(n===null||n===undefined) return '—';
+  const sign = n>=0?'+':'-';
+  return sign+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
+}
+function pct(n){ return (n*100).toFixed(1)+'%'; }
+
+function getMonths(){
+  const months = [...new Set(data.map(d=>d.month+' '+d.year))];
+  const order = ['Aug 2025','Sep 2025','Oct 2025','Nov 2025','Dec 2025','Jan 2026','Feb 2026'];
+  return order.filter(m=>months.includes(m));
+}
+
+function populateMonthSelect(){
+  const sel = document.getElementById('sel-month');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="all">All months</option>';
+  getMonths().forEach(m=>{
+    const o = document.createElement('option');
+    o.value=m; o.textContent=m; sel.appendChild(o);
+  });
+  if(cur && [...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+
+function getFiltered(){
+  const m = document.getElementById('sel-month').value;
+  const a = document.getElementById('sel-acc').value;
+  return data.filter(d=>{
+    if(m!=='all' && (d.month+' '+d.year)!==m) return false;
+    if(a!=='all' && d.account!==a) return false;
+    return true;
+  });
+}
+
+function switchTab(name, el){
+  activeTab=name;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  ['overview','categories','trend','sheets'].forEach(t=>{
+    document.getElementById('tab-'+t).style.display = t===name?'':'none';
+  });
+  render();
+}
+
+function render(){
+  if(activeTab==='overview') renderOverview();
+  else if(activeTab==='categories') renderCategories();
+  else if(activeTab==='trend') renderTrend();
+  else if(activeTab==='sheets') renderSheets();
+}
+
+function renderOverview(){
+  const sheets = getFiltered();
+  const totExp = sheets.reduce((s,d)=>s+d.total_expenses_actual,0);
+  const totInc = sheets.reduce((s,d)=>s+d.total_income_actual,0);
+  const netSaved = sheets.reduce((s,d)=>s+d.saved_this_month,0);
+  const startBal = sheets.length ? sheets[0].start_balance : 0;
+  const endBal = sheets.length ? sheets[sheets.length-1].end_balance : 0;
+  const net = totInc - totExp;
+
+  const el = document.getElementById('tab-overview');
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:1rem">
+      <div class="mcard"><div class="mlabel">Starting balance</div><div class="mval" style="color:#185FA5">${fmt(startBal)}</div></div>
+      <div class="mcard"><div class="mlabel">Ending balance</div><div class="mval" style="color:${endBal>=startBal?'#3B6D11':'#A32D2D'}">${fmt(endBal)}</div></div>
+      <div class="mcard"><div class="mlabel">Net change</div><div class="mval" style="color:${netSaved>=0?'#3B6D11':'#A32D2D'}">${fmtSigned(netSaved)}</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:1.25rem">
+      <div class="mcard"><div class="mlabel">Total spent</div><div class="mval" style="color:#A32D2D">${fmt(totExp)}</div></div>
+      <div class="mcard"><div class="mlabel">Total income</div><div class="mval" style="color:#3B6D11">${fmt(totInc)}</div></div>
+      <div class="mcard"><div class="mlabel">Income − expenses</div><div class="mval" style="color:${net>=0?'#3B6D11':'#A32D2D'}">${fmtSigned(net)}</div></div>
+    </div>
+
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Month-by-month summary</div>
+    <div style="border:0.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden">
+      <div class="thead" style="grid-template-columns:90px 80px 90px 90px 90px 80px 80px">
+        <span>Month</span><span>Account</span><span style="text-align:right">Start bal.</span><span style="text-align:right">End bal.</span><span style="text-align:right">Spent</span><span style="text-align:right">Income</span><span style="text-align:right">Saved</span>
+      </div>
+      ${sheets.map(d=>`
+        <div class="trow" style="grid-template-columns:90px 80px 90px 90px 90px 80px 80px">
+          <span style="font-weight:500">${d.month} ${d.year}</span>
+          <span><span class="badge" style="background:${d.account==='Canara'?'#E6F1FB':'#E1F5EE'};color:${d.account==='Canara'?'#0C447C':'#085041'}">${d.account}</span></span>
+          <span style="text-align:right;font-size:12px">${fmt(d.start_balance)}</span>
+          <span style="text-align:right;font-size:12px;color:${d.end_balance>=d.start_balance?'#3B6D11':'#A32D2D'}">${fmt(d.end_balance)}</span>
+          <span style="text-align:right;font-size:12px;color:#A32D2D">${fmt(d.total_expenses_actual)}</span>
+          <span style="text-align:right;font-size:12px;color:#3B6D11">${fmt(d.total_income_actual)}</span>
+          <span style="text-align:right;font-size:12px;font-weight:500;color:${d.saved_this_month>=0?'#3B6D11':'#A32D2D'}">${fmtSigned(d.saved_this_month)}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+function renderCategories(){
+  const sheets = getFiltered();
+  const catMap={};
+  sheets.forEach(d=>{
+    d.expense_categories.forEach(c=>{
+      if(c.actual>0) catMap[c.category]=(catMap[c.category]||0)+c.actual;
+    });
+  });
+  const cats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+  const total = cats.reduce((s,c)=>s+c[1],0);
+
+  const incMap={};
+  sheets.forEach(d=>{
+    d.income_categories.forEach(c=>{
+      if(c.actual>0) incMap[c.category]=(incMap[c.category]||0)+c.actual;
+    });
+  });
+  const incCats = Object.entries(incMap).sort((a,b)=>b[1]-a[1]);
+  const incTotal = incCats.reduce((s,c)=>s+c[1],0);
+
+  const el = document.getElementById('tab-categories');
+  el.innerHTML = `
+    <div class="section-title" style="margin-top:0">Expenses by category</div>
+    <div style="border:0.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden;margin-bottom:1.25rem">
+      <div class="thead" style="grid-template-columns:130px 1fr 90px 60px"><span>Category</span><span>Share</span><span style="text-align:right">Amount</span><span style="text-align:right">%</span></div>
+      ${cats.map((c,i)=>{
+        const p = total>0?(c[1]/total*100):0;
+        const col = CAT_COLORS[i%CAT_COLORS.length];
+        return `<div class="trow" style="grid-template-columns:130px 1fr 90px 60px">
+          <span style="font-weight:500;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${col};flex-shrink:0"></span>${c[0]}</span>
+          <div style="padding-right:12px"><div class="pbar"><div class="pinner" style="width:${p.toFixed(1)}%;background:${col}"></div></div></div>
+          <span style="text-align:right;font-weight:500;color:#A32D2D">${fmt(c[1])}</span>
+          <span style="text-align:right;color:var(--color-text-secondary)">${p.toFixed(1)}%</span>
+        </div>`;
+      }).join('')}
+      <div class="trow" style="grid-template-columns:130px 1fr 90px 60px;font-weight:500;border-top:1px solid var(--color-border-secondary)">
+        <span>Total</span><span></span><span style="text-align:right;color:#A32D2D">${fmt(total)}</span><span></span>
+      </div>
+    </div>
+
+    <div class="section-title">Income by category</div>
+    <div style="border:0.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden">
+      <div class="thead" style="grid-template-columns:130px 1fr 90px 60px"><span>Category</span><span>Share</span><span style="text-align:right">Amount</span><span style="text-align:right">%</span></div>
+      ${incCats.map((c,i)=>{
+        const p = incTotal>0?(c[1]/incTotal*100):0;
+        const col = ['#3B6D11','#185FA5','#534AB7','#0F6E56','#BA7517'][i%5];
+        return `<div class="trow" style="grid-template-columns:130px 1fr 90px 60px">
+          <span style="font-weight:500;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:${col};flex-shrink:0"></span>${c[0]}</span>
+          <div style="padding-right:12px"><div class="pbar"><div class="pinner" style="width:${p.toFixed(1)}%;background:${col}"></div></div></div>
+          <span style="text-align:right;font-weight:500;color:#3B6D11">${fmt(c[1])}</span>
+          <span style="text-align:right;color:var(--color-text-secondary)">${p.toFixed(1)}%</span>
+        </div>`;
+      }).join('')}
+      <div class="trow" style="grid-template-columns:130px 1fr 90px 60px;font-weight:500;border-top:1px solid var(--color-border-secondary)">
+        <span>Total</span><span></span><span style="text-align:right;color:#3B6D11">${fmt(incTotal)}</span><span></span>
+      </div>
+    </div>`;
+}
+
+function renderTrend(){
+  const el = document.getElementById('tab-trend');
+  const acc = document.getElementById('sel-acc').value;
+
+  const months = getMonths();
+  const expByMonth = months.map(mo=>{
+    const [m,y]=mo.split(' ');
+    return data.filter(d=>d.month===m&&d.year===y&&(acc==='all'||d.account===acc)).reduce((s,d)=>s+d.total_expenses_actual,0);
+  });
+  const incByMonth = months.map(mo=>{
+    const [m,y]=mo.split(' ');
+    return data.filter(d=>d.month===m&&d.year===y&&(acc==='all'||d.account===acc)).reduce((s,d)=>s+d.total_income_actual,0);
+  });
+  const balByMonth = months.map(mo=>{
+    const [m,y]=mo.split(' ');
+    const sheets = data.filter(d=>d.month===m&&d.year===y&&(acc==='all'||d.account===acc));
+    return sheets.reduce((s,d)=>s+d.end_balance,0);
+  });
+  const savedByMonth = months.map(mo=>{
+    const [m,y]=mo.split(' ');
+    return data.filter(d=>d.month===m&&d.year===y&&(acc==='all'||d.account===acc)).reduce((s,d)=>s+d.saved_this_month,0);
+  });
+
+  el.innerHTML = `
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Income vs expenses</div>
+    <div style="display:flex;gap:16px;margin-bottom:6px;font-size:12px;color:var(--color-text-secondary)">
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#E24B4A"></span>Expenses</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#639922"></span>Income</span>
+    </div>
+    <div style="position:relative;height:220px;margin-bottom:1.25rem"><canvas id="trendChart" role="img" aria-label="Monthly income vs expenses bar chart">Monthly income and expense data for ${months.join(', ')}</canvas></div>
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">End-of-month balance</div>
+    <div style="position:relative;height:180px;margin-bottom:1.25rem"><canvas id="balChart" role="img" aria-label="End of month balance trend">Balance data for ${months.join(', ')}</canvas></div>
+    <div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">Monthly saved/lost</div>
+    <div style="position:relative;height:160px"><canvas id="savedChart" role="img" aria-label="Monthly amount saved or lost">Monthly savings/loss data</canvas></div>`;
+
+  setTimeout(()=>{
+    if(chartInst1){chartInst1.destroy();}
+    if(chartInst2){chartInst2.destroy();}
+    const fmtK = v=>(v>=1000||v<=-1000)?(v/1000).toFixed(0)+'k':v;
+    chartInst1 = new Chart(document.getElementById('trendChart'),{
+      type:'bar',
+      data:{labels:months,datasets:[
+        {label:'Expenses',data:expByMonth.map(v=>Math.round(v)),backgroundColor:'rgba(226,75,74,0.7)'},
+        {label:'Income',data:incByMonth.map(v=>Math.round(v)),backgroundColor:'rgba(99,153,34,0.7)'}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK,font:{size:11}},grid:{color:'rgba(128,128,128,0.08)'}},x:{ticks:{font:{size:11},autoSkip:false,maxRotation:30},grid:{display:false}}}}
+    });
+    chartInst2 = new Chart(document.getElementById('balChart'),{
+      type:'line',
+      data:{labels:months,datasets:[{label:'Balance',data:balByMonth.map(v=>Math.round(v)),borderColor:'#185FA5',backgroundColor:'rgba(24,95,165,0.07)',tension:0.4,fill:true,pointRadius:4}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK,font:{size:11}},grid:{color:'rgba(128,128,128,0.08)'}},x:{ticks:{font:{size:11},autoSkip:false,maxRotation:30},grid:{display:false}}}}
+    });
+    new Chart(document.getElementById('savedChart'),{
+      type:'bar',
+      data:{labels:months,datasets:[{label:'Saved',data:savedByMonth.map(v=>Math.round(v)),backgroundColor:savedByMonth.map(v=>v>=0?'rgba(99,153,34,0.7)':'rgba(226,75,74,0.7)')}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK,font:{size:11}},grid:{color:'rgba(128,128,128,0.08)'}},x:{ticks:{font:{size:11},autoSkip:false,maxRotation:30},grid:{display:false}}}}
+    });
+  },50);
+}
+
+function renderSheets(){
+  const sheets = getFiltered();
+  const el = document.getElementById('tab-sheets');
+  el.innerHTML = sheets.map(d=>`
+    <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:12px;padding:1rem;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+        <div>
+          <span style="font-size:14px;font-weight:500">${d.month} ${d.year}</span>
+          <span class="badge" style="margin-left:8px;background:${d.account==='Canara'?'#E6F1FB':'#E1F5EE'};color:${d.account==='Canara'?'#0C447C':'#085041'}">${d.account}</span>
+        </div>
+        <span class="badge" style="background:${d.saved_this_month>=0?'#EAF3DE':'#FCEBEB'};color:${d.saved_this_month>=0?'#3B6D11':'#A32D2D'}">${d.savings_label}: ${fmtSigned(d.saved_this_month)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px">
+        <div class="mcard"><div class="mlabel">Start balance</div><div class="mval" style="font-size:15px;color:#185FA5">${fmt(d.start_balance)}</div></div>
+        <div class="mcard"><div class="mlabel">End balance</div><div class="mval" style="font-size:15px;color:${d.end_balance>=d.start_balance?'#3B6D11':'#A32D2D'}">${fmt(d.end_balance)}</div></div>
+        <div class="mcard"><div class="mlabel">Total spent</div><div class="mval" style="font-size:15px;color:#A32D2D">${fmt(d.total_expenses_actual)}</div></div>
+        <div class="mcard"><div class="mlabel">Total income</div><div class="mval" style="font-size:15px;color:#3B6D11">${fmt(d.total_income_actual)}</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div class="section-title" style="margin-top:0">Expenses</div>
+          ${d.expense_categories.filter(c=>c.actual>0).sort((a,b)=>b.actual-a.actual).map((c,i)=>{
+            const col=CAT_COLORS[i%CAT_COLORS.length];
+            const pctW = d.total_expenses_actual>0?(c.actual/d.total_expenses_actual*100):0;
+            return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+              <span style="font-size:12px;flex:0 0 90px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.category}</span>
+              <div class="pbar"><div class="pinner" style="width:${pctW.toFixed(0)}%;background:${col}"></div></div>
+              <span style="font-size:12px;font-weight:500;min-width:65px;text-align:right;color:#A32D2D">${fmt(c.actual)}</span>
+            </div>`;
+          }).join('')||'<div style="font-size:12px;color:var(--color-text-secondary)">No expenses</div>'}
+        </div>
+        <div>
+          <div class="section-title" style="margin-top:0">Income</div>
+          ${d.income_categories.filter(c=>c.actual>0).sort((a,b)=>b.actual-a.actual).map((c,i)=>{
+            const col=['#3B6D11','#185FA5','#534AB7','#0F6E56','#BA7517'][i%5];
+            const pctW = d.total_income_actual>0?(c.actual/d.total_income_actual*100):0;
+            return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+              <span style="font-size:12px;flex:0 0 90px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.category}</span>
+              <div class="pbar"><div class="pinner" style="width:${pctW.toFixed(0)}%;background:${col}"></div></div>
+              <span style="font-size:12px;font-weight:500;min-width:65px;text-align:right;color:#3B6D11">${fmt(c.actual)}</span>
+            </div>`;
+          }).join('')||'<div style="font-size:12px;color:var(--color-text-secondary)">No income</div>'}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function loadFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      const wb = XLSX.read(ev.target.result,{type:'array',cellDates:true});
+      const parsed=[];
+      const monthMap={jan:'Jan',feb:'Feb',mar:'Mar',apr:'Apr',may:'May',jun:'Jun',jul:'Jul',aug:'Aug',sep:'Sep',oct:'Oct',nov:'Nov',dec:'Dec'};
+      wb.SheetNames.forEach(sn=>{
+        if(!sn.toLowerCase().includes('summary')) return;
+        const ws=wb.Sheets[sn];
+        const df=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+        const cell=(r,c)=>{try{const v=df[r]&&df[r][c];return(v===null||v===undefined||String(v).trim()==='')? null:v;}catch{return null;}};
+        const account=sn.toLowerCase().includes('canara')?'Canara':'Union';
+        const sl=sn.toLowerCase();
+        let month=null;
+        for(const[k,v] of Object.entries(monthMap)){if(sl.includes(k)){month=v;break;}}
+        if(!month) return;
+        const year=(['Jan','Feb','Mar'].includes(month)&&!sl.includes('2025'))?'2026':'2025';
+        const obj={
+          sheet:sn, account, month, year,
+          starting_balance:cell(7,11),
+          start_balance:cell(16,3),
+          end_balance:cell(16,4),
+          saved_this_month:cell(14,8),
+          savings_label:cell(13,8)||'',
+          total_expenses_actual:cell(21,2)||0,
+          total_income_actual:cell(21,8)||0,
+          expense_categories:[],
+          income_categories:[]
+        };
+        for(let r=27;r<Math.min(55,df.length);r++){
+          const cn=cell(r,1);
+          if(cn&&typeof cn==='string'&&cn.trim()){
+            const a=cell(r,4);
+            if(a&&parseFloat(a)>0) obj.expense_categories.push({category:cn.trim(),planned:parseFloat(cell(r,3)||0),actual:parseFloat(a),diff:parseFloat(cell(r,5)||0)});
+          }
+          const in2=cell(r,7);
+          if(in2&&typeof in2==='string'&&in2.trim()){
+            const a=cell(r,10);
+            if(a&&parseFloat(a)>0) obj.income_categories.push({category:in2.trim(),planned:parseFloat(cell(r,9)||0),actual:parseFloat(a),diff:parseFloat(cell(r,11)||0)});
+          }
+        }
+        ['start_balance','end_balance','saved_this_month','starting_balance','total_expenses_actual','total_income_actual'].forEach(k=>{
+          if(obj[k]!==null&&obj[k]!==undefined) obj[k]=parseFloat(obj[k]);
+        });
+        parsed.push(obj);
+      });
+      if(parsed.length){
+        data=parsed;
+        document.getElementById('file-label').textContent='Showing data from: '+file.name+' ('+parsed.length+' summary sheets)';
+        populateMonthSelect();
+        render();
+      } else {
+        alert('No summary sheets found in this file.');
+      }
+    }catch(e){alert('Error reading file: '+e.message);}
+    event.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+populateMonthSelect();
+render();
+</script>
