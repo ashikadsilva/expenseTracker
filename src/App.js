@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './styles.css';
 import ManualEntryModal from './components/ManualEntryModal';
-import { loadData, saveData } from './utils/supabase';
 import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import CategoriesView from './components/CategoriesView';
@@ -9,80 +8,14 @@ import ManageCategories from './components/ManageCategories';
 import ImportTab from './components/ImportTab';
 import TransactionModal from './components/TransactionModal';
 import CategoryModal from './components/CategoryModal';
+import MonthlyStatement from './components/MonthlyStatement';
+import { loadAppData, saveAppData, DEFAULT_CATEGORIES } from './utils/persistence';
 
 const PALETTE = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C','#633806'];
 
-const initialCategories = {
-  expense: [
-    {name:'Food',color:'#185FA5'},{name:'Home',color:'#3B6D11'},{name:'Shopping',color:'#BA7517'},
-    {name:'SIP',color:'#534AB7'},{name:'Transportation',color:'#0F6E56'},{name:'Recharge',color:'#993556'},
-    {name:'Investment',color:'#A32D2D'},{name:'Gifts',color:'#D85A30'},{name:'Health/medical',color:'#D4537E'},
-    {name:'Travel',color:'#639922'},{name:'Utilities',color:'#888780'},{name:'Debt',color:'#E24B4A'},
-    {name:'Rent',color:'#3266ad'},{name:'Other',color:'#73726c'},{name:'Union',color:'#1D9E75'},
-    {name:'Mom',color:'#EF9F27'},{name:'Trip',color:'#97C459'},
-  ],
-  income: [
-    {name:'Paycheck',color:'#3B6D11'},{name:'Credited Amount',color:'#185FA5'},{name:'Savings',color:'#534AB7'},
-    {name:'Bonus',color:'#BA7517'},{name:'Interest',color:'#0F6E56'},{name:'Reward',color:'#D85A30'},
-  ]
-};
-
-const initialTransactions = [
-  {id:1,date:'2025-08-01',desc:'Transportation',cat:'Transportation',amount:500,type:'expense',account:'Canara'},
-  {id:2,date:'2025-08-01',desc:'Cake',cat:'Home',amount:500,type:'expense',account:'Canara'},
-  {id:3,date:'2025-08-01',desc:'Jeans Gift',cat:'Gifts',amount:2048,type:'expense',account:'Canara'},
-  {id:4,date:'2025-08-03',desc:'PostOffice Investment',cat:'Investment',amount:60000,type:'expense',account:'Canara'},
-  {id:5,date:'2025-08-08',desc:'Food',cat:'Food',amount:120,type:'expense',account:'Canara'},
-  {id:6,date:'2025-08-09',desc:'Mom',cat:'Mom',amount:2000,type:'expense',account:'Canara'},
-  {id:7,date:'2025-08-18',desc:'Birthday gift',cat:'Gifts',amount:1997,type:'expense',account:'Canara'},
-  {id:8,date:'2025-08-23',desc:'Recharge',cat:'Recharge',amount:300.9,type:'expense',account:'Canara'},
-  {id:9,date:'2025-08-25',desc:'Savana',cat:'Shopping',amount:1298,type:'expense',account:'Canara'},
-  {id:10,date:'2025-08-04',desc:'Salary',cat:'Paycheck',amount:30000,type:'income',account:'Canara'},
-  {id:11,date:'2025-08-06',desc:'Food',cat:'Food',amount:445,type:'expense',account:'Union'},
-  {id:12,date:'2025-08-09',desc:'Meat',cat:'Home',amount:942,type:'expense',account:'Union'},
-  {id:13,date:'2025-08-13',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:14,date:'2025-08-28',desc:'Ancilla',cat:'Shopping',amount:580,type:'expense',account:'Union'},
-  {id:15,date:'2025-09-01',desc:'Dresses mom sister',cat:'Shopping',amount:2258,type:'expense',account:'Union'},
-  {id:16,date:'2025-09-03',desc:'SIP',cat:'SIP',amount:2500,type:'expense',account:'Canara'},
-  {id:17,date:'2025-09-13',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:18,date:'2025-09-16',desc:'Blood report',cat:'Health/medical',amount:3180,type:'expense',account:'Canara'},
-  {id:19,date:'2025-09-23',desc:'Naukri',cat:'Other',amount:408,type:'expense',account:'Canara'},
-  {id:20,date:'2025-09-25',desc:'Food shared',cat:'Food',amount:490,type:'expense',account:'Canara'},
-  {id:21,date:'2025-09-29',desc:'Salary',cat:'Paycheck',amount:30000,type:'income',account:'Canara'},
-  {id:22,date:'2025-10-01',desc:'SIP',cat:'SIP',amount:3500,type:'expense',account:'Canara'},
-  {id:23,date:'2025-10-08',desc:'Travel Canara',cat:'Travel',amount:4052,type:'expense',account:'Canara'},
-  {id:24,date:'2025-10-14',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:25,date:'2025-10-17',desc:'Myntra',cat:'Gifts',amount:1169,type:'expense',account:'Canara'},
-  {id:26,date:'2025-10-28',desc:'Doctor',cat:'Health/medical',amount:7900,type:'expense',account:'Canara'},
-  {id:27,date:'2025-10-10',desc:'Phone',cat:'Other',amount:18749,type:'expense',account:'Union'},
-  {id:28,date:'2025-11-01',desc:'SIP',cat:'SIP',amount:3501,type:'expense',account:'Canara'},
-  {id:29,date:'2025-11-13',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:30,date:'2025-11-22',desc:'ATM cash',cat:'Transportation',amount:300,type:'expense',account:'Canara'},
-  {id:31,date:'2025-11-22',desc:'Ancilla Post Office',cat:'Investment',amount:5000,type:'expense',account:'Canara'},
-  {id:32,date:'2025-11-21',desc:'Union transfer',cat:'Credited Amount',amount:10000,type:'income',account:'Canara'},
-  {id:33,date:'2025-11-28',desc:'Shopping',cat:'Shopping',amount:6841,type:'expense',account:'Union'},
-  {id:34,date:'2025-12-01',desc:'SIP',cat:'SIP',amount:3500,type:'expense',account:'Canara'},
-  {id:35,date:'2025-12-03',desc:'Debt repayment',cat:'Debt',amount:6600,type:'expense',account:'Canara'},
-  {id:36,date:'2025-12-14',desc:'Union Bank transfer',cat:'Union',amount:6100,type:'expense',account:'Canara'},
-  {id:37,date:'2025-12-14',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:38,date:'2025-12-19',desc:'Sandals',cat:'Shopping',amount:1100,type:'expense',account:'Canara'},
-  {id:39,date:'2025-12-29',desc:'Subscription',cat:'Utilities',amount:950,type:'expense',account:'Union'},
-  {id:40,date:'2026-01-02',desc:'SIP',cat:'SIP',amount:3000,type:'expense',account:'Canara'},
-  {id:41,date:'2026-01-13',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:42,date:'2026-01-24',desc:'Post Office',cat:'Investment',amount:5000,type:'expense',account:'Canara'},
-  {id:43,date:'2026-01-26',desc:'Parcel food',cat:'Food',amount:2050,type:'expense',account:'Canara'},
-  {id:44,date:'2026-01-08',desc:'Transfer received',cat:'Credited Amount',amount:16000,type:'income',account:'Canara'},
-  {id:45,date:'2026-02-01',desc:'SIP',cat:'SIP',amount:5000,type:'expense',account:'Canara'},
-  {id:46,date:'2026-02-01',desc:'ATM cash',cat:'Transportation',amount:1500,type:'expense',account:'Canara'},
-  {id:47,date:'2026-02-14',desc:'Rent',cat:'Rent',amount:6300,type:'expense',account:'Union'},
-  {id:48,date:'2026-02-04',desc:'Food shared',cat:'Food',amount:380,type:'expense',account:'Canara'},
-  {id:49,date:'2026-02-13',desc:'Cash home',cat:'Home',amount:2000,type:'expense',account:'Canara'},
-  {id:50,date:'2026-02-20',desc:'Transfer received',cat:'Credited Amount',amount:10000,type:'income',account:'Union'},
-];
-
 function App() {
-  const [categories, setCategories] = useState(initialCategories);
-  const [transactions, setTransactions] = useState(initialTransactions);
+  const [categories, setCategories] = useState({ expense: [], income: [] });
+  const [transactions, setTransactions] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showTxnModal, setShowTxnModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
@@ -95,31 +28,43 @@ function App() {
   const fileInputRef = useRef(null);
   const [budgetData, setBudgetData] = useState([]);
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
+  const [viewMode, setViewMode] = useState('individual'); // 'individual' or 'combined'
+  const [dataReady, setDataReady] = useState(false);
 
-  // Load data from cloud/localStorage on mount
+  // Load from Supabase (if configured) or localStorage once on mount
   useEffect(() => {
-    const initializeData = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        const data = await loadData();
+        const data = await loadAppData();
+        if (cancelled) return;
         setCategories(data.categories);
         setTransactions(data.transactions);
         setBudgetData(data.budgetData);
       } catch (error) {
         console.error('Error initializing data:', error);
-        // Fallback to empty state
-        setCategories({ expense: [], income: [] });
-        setTransactions([]);
-        setBudgetData([]);
+        if (!cancelled) {
+          setCategories({
+            expense: [...DEFAULT_CATEGORIES.expense],
+            income: [...DEFAULT_CATEGORIES.income],
+          });
+          setTransactions([]);
+          setBudgetData([]);
+        }
+      } finally {
+        if (!cancelled) setDataReady(true);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-    
-    initializeData();
   }, []);
 
-  // Save data to cloud and localStorage whenever it changes
+  // After first load, persist every change (localStorage + cloud)
   useEffect(() => {
-    saveData(transactions, categories, budgetData);
-  }, [transactions, categories, budgetData]);
+    if (!dataReady) return;
+    saveAppData(transactions, categories, budgetData);
+  }, [transactions, categories, budgetData, dataReady]);
 
   const getColor = (cat) => {
     const all = [...categories.expense, ...categories.income];
@@ -441,135 +386,376 @@ function App() {
           let imported = 0, skipped = 0;
           const existingKeys = new Set(transactions.map(t => `${t.date}_${t.amount}_${t.account}_${t.type}`));
           
-          // Dynamic Excel Data Analysis
-          const analyzeExcelData = (wb) => {
-            const analysis = {
-              sheets: {},
-              summary: {
-                totalSheets: wb.SheetNames.length,
-                transactionSheets: 0,
-                balanceSheets: 0,
-                startingBalance: 0,
-                totalIncome: 0,
-                totalExpenses: 0,
-                endingBalance: 0
+          console.log('Workbook sheets found:', wb.SheetNames);
+
+          const parseExcelDate = (val) => {
+            if (val instanceof Date && !isNaN(val.getTime())) {
+              const y = val.getFullYear();
+              if (y < 2015 || y > 2040) return null;
+              const m = String(val.getMonth() + 1).padStart(2, '0');
+              const d = String(val.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            }
+            if (typeof val === 'number' && val > 20000 && val < 100000) {
+              const dt = new Date(Math.round((val - 25569) * 86400 * 1000));
+              if (isNaN(dt.getTime())) return null;
+              const y = dt.getUTCFullYear();
+              const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+              const d = String(dt.getUTCDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            }
+            if (typeof val === 'string' && /\d{4}-\d{2}-\d{2}/.test(val)) return val.trim().split(/\s+/)[0];
+            return null;
+          };
+
+          const parseTransactionSheet = (ws, sheetName) => {
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+            const transactions = [];
+            let account = 'Unknown';
+            const sl = sheetName.toLowerCase();
+            if (sl.includes('canara')) account = 'Canara';
+            else if (sl.includes('union')) account = 'Union';
+            for (let r = 4; r < rows.length; r++) {
+              const row = rows[r];
+              if (!row) continue;
+              const dateE = row[0];
+              const amtE = row[1];
+              const descE = row[2];
+              const catE = row[3];
+              if (dateE != null && amtE != null && !Number.isNaN(parseFloat(amtE))) {
+                const dateStr = parseExcelDate(dateE);
+                const abs = Math.round(Math.abs(parseFloat(amtE)) * 100) / 100;
+                if (dateStr && abs > 0) {
+                  const cat = String(catE || 'Other').trim() || 'Other';
+                  const desc = String(descE || '').trim();
+                  transactions.push({ date: dateStr, amount: abs, desc, cat, account, type: 'expense' });
+                }
               }
-            };
+              const dateI = row[5];
+              const amtI = row[6];
+              const descI = row[7];
+              const catI = row[8];
+              if (dateI != null && amtI != null && !Number.isNaN(parseFloat(amtI))) {
+                const dateStr = parseExcelDate(dateI);
+                const abs = Math.round(Math.abs(parseFloat(amtI)) * 100) / 100;
+                if (dateStr && abs > 0) {
+                  const cat = String(catI || 'Other').trim() || 'Other';
+                  const desc = String(descI || '').trim();
+                  transactions.push({ date: dateStr, amount: abs, desc, cat, account, type: 'income' });
+                }
+              }
+            }
+            return transactions;
+          };
+          
+          // Budget-specific Excel Data Analysis using exact cell positions
+          const analyzeExcelData = (wb) => {
+            const budgetData = [];
             
             wb.SheetNames.forEach(sheetName => {
-              const ws = wb.Sheets[sheetName];
-              const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+              const sheetNameLower = sheetName.toLowerCase();
               
-              const sheetAnalysis = {
-                name: sheetName,
-                type: 'unknown',
-                rowCount: rows.length,
-                columns: [],
-                hasDates: false,
-                hasAmounts: false,
-                hasBalance: false,
-                startingBalance: null,
-                endingBalance: null,
-                transactions: []
-              };
-              
-              // Analyze first few rows to detect column types
-              if (rows.length > 0) {
-                const headerRow = rows[0] || [];
-                const sampleRows = rows.slice(1, Math.min(5, rows.length));
-                
-                // Detect column types dynamically
-                headerRow.forEach((header, colIndex) => {
-                  const colName = String(header || '').toLowerCase();
-                  const colData = {
-                    index: colIndex,
-                    name: header,
-                    type: 'unknown',
-                    sampleValues: []
-                  };
-                  
-                  // Check sample values in this column
-                  sampleRows.forEach(row => {
-                    const value = row && row[colIndex];
-                    if (value != null && value !== '') {
-                      colData.sampleValues.push(value);
-                      
-                      // Detect column type
-                      if (value instanceof Date || (typeof value === 'string' && value.match(/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/))) {
-                        colData.type = 'date';
-                        sheetAnalysis.hasDates = true;
-                      } else if (!isNaN(parseFloat(value)) && parseFloat(value) !== 0) {
-                        colData.type = 'amount';
-                        sheetAnalysis.hasAmounts = true;
-                      } else if (typeof value === 'string' && value.toLowerCase().includes('balance')) {
-                        colData.type = 'balance';
-                        sheetAnalysis.hasBalance = true;
-                      } else if (typeof value === 'string') {
-                        colData.type = 'text';
-                      }
-                    }
-                  });
-                  
-                  sheetAnalysis.columns.push(colData);
-                });
-                
-                // Determine sheet type
-                const sheetNameLower = sheetName.toLowerCase();
-                if (sheetNameLower.includes('transaction') || sheetNameLower.includes('expense') || sheetNameLower.includes('income')) {
-                  sheetAnalysis.type = 'transactions';
-                  analysis.summary.transactionSheets++;
-                } else if (sheetNameLower.includes('balance') || sheetNameLower.includes('summary') || sheetNameLower.includes('account')) {
-                  sheetAnalysis.type = 'balance';
-                  analysis.summary.balanceSheets++;
-                }
-                
-                // Extract transactions from transaction sheets
-                if (sheetAnalysis.type === 'transactions') {
-                  rows.forEach((row, i) => {
-                    if (i === 0 || !row || row.length === 0) return; // Skip header and empty rows
-                    
-                    const transaction = extractTransactionFromRow(row, sheetAnalysis.columns, sheetName);
-                    if (transaction) {
-                      sheetAnalysis.transactions.push(transaction);
-                    }
-                  });
-                }
-                
-                // Extract balance information from balance sheets
-                if (sheetAnalysis.type === 'balance') {
-                  rows.forEach((row, i) => {
-                    if (!row || row.length === 0) return;
-                    
-                    row.forEach((cell, colIndex) => {
-                      const col = sheetAnalysis.columns[colIndex];
-                      if (!col) return;
-                      
-                      const cellStr = String(cell || '').toLowerCase();
-                      const cellValue = parseFloat(cell);
-                      
-                      if (!isNaN(cellValue)) {
-                        if (cellStr.includes('opening') || cellStr.includes('starting') || cellStr.includes('beginning')) {
-                          sheetAnalysis.startingBalance = cellValue;
-                        } else if (cellStr.includes('closing') || cellStr.includes('ending') || cellStr.includes('final')) {
-                          sheetAnalysis.endingBalance = cellValue;
-                        } else if (col.type === 'amount' && !cellStr.includes('balance')) {
-                          // This might be income/expense data
-                          if (cellValue > 0) {
-                            analysis.summary.totalIncome += cellValue;
-                          } else {
-                            analysis.summary.totalExpenses += Math.abs(cellValue);
-                          }
-                        }
-                      }
-                    });
-                  });
-                }
+              // Only process summary sheets (not transaction sheets)
+              if (!sheetNameLower.includes('summary') && !sheetNameLower.includes('account')) {
+                return;
               }
               
-              analysis.sheets[sheetName] = sheetAnalysis;
+              // Try multiple methods to access worksheet
+              let ws = wb.Sheets[sheetName];
+              if (!ws) {
+                console.warn(`Worksheet ${sheetName} not found in workbook`);
+                console.log('Available sheets:', Object.keys(wb.Sheets));
+                console.log('Workbook structure:', wb);
+                return;
+              }
+              
+              // Additional debugging
+              console.log(`Worksheet ${sheetName} type:`, typeof ws);
+              console.log(`Worksheet ${sheetName} keys:`, ws ? Object.keys(ws) : 'undefined');
+              const range = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: 'A1', e: { r: 0, c: 0 } };
+              const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+              
+              // Get cell values using exact positions with robust error handling and numeric parsing
+              const getCell = (row, col) => {
+                try {
+                  const cellAddress = XLSX.utils.encode_cell({r: row, c: col});
+                  const cell = ws[cellAddress];
+                  if (!cell) return null;
+                  
+                  // Extract numeric value properly
+                  let value = cell.v;
+                  if (cell.w && !value) {
+                    // Try to parse formatted string value
+                    const cleanValue = String(cell.w).replace(/[^\d.-]/g, '');
+                    value = parseFloat(cleanValue) || 0;
+                  }
+                  
+                  // Ensure we return a number
+                  return typeof value === 'number' ? value : (parseFloat(value) || 0);
+                } catch (error) {
+                  console.warn(`Error reading cell ${row},${col}:`, error);
+                  return null;
+                }
+              };
+
+              const readText = (row, col) => {
+                try {
+                  const cell = ws[XLSX.utils.encode_cell({ r: row, c: col })];
+                  if (!cell || cell.v == null) return '';
+                  return String(cell.v).trim();
+                } catch {
+                  return '';
+                }
+              };
+              
+              // Parse sheet name to extract account and month
+              let account = 'Unknown';
+              let month = 'Unknown';
+              let year = '2025';
+              
+              if (sheetNameLower.includes('canara')) account = 'Canara';
+              if (sheetNameLower.includes('union')) account = 'Union';
+              
+              const monthMatch = sheetName.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
+              if (monthMatch) {
+                month = monthMatch[1].charAt(0).toUpperCase() + monthMatch[1].slice(1);
+              }
+              
+              const yearMatch = sheetName.match(/\d{4}/);
+              if (yearMatch) year = yearMatch[0];
+              
+              // Extract values using exact positions with fallback methods and debugging
+              console.log(`Processing sheet: ${sheetName}`);
+              console.log('Worksheet keys:', Object.keys(ws));
+              
+              // Monthly budget.xlsx: L8 / D17 = start; older templates: K/L area
+              let startingBalance =
+                getCell(7, 11) ||
+                getCell(16, 3) ||
+                getCell(6, 9) ||
+                getCell(6, 10) ||
+                getCell(7, 9) ||
+                0;
+              
+              // Ensure starting balance is a number
+              if (typeof startingBalance === 'string' && startingBalance.includes('Starting balance:')) {
+                // Extract numeric value from string like "Starting balance: 5000"
+                const numericMatch = startingBalance.match(/[\d,.-]+/);
+                startingBalance = numericMatch ? parseFloat(numericMatch[0]) : 0;
+              } else if (typeof startingBalance !== 'number') {
+                startingBalance = parseFloat(startingBalance) || 0;
+              }
+              
+              console.log(`Starting balance found: ${startingBalance}`);
+              
+              let endBalance =
+                getCell(16, 4) ||
+                getCell(15, 3) ||
+                getCell(15, 4) ||
+                0;
+              
+              // Ensure ending balance is a number
+              if (typeof endBalance === 'string' && endBalance.includes('START BALANCE')) {
+                // Extract numeric value from string like "START BALANCE 5000"
+                const numericMatch = endBalance.match(/[\d,.-]+/);
+                endBalance = numericMatch ? parseFloat(numericMatch[0]) : 0;
+              } else if (typeof endBalance !== 'number') {
+                endBalance = parseFloat(endBalance) || 0;
+              }
+              
+              const savingsLabel =
+                readText(13, 8) ||
+                readText(12, 8) ||
+                'No change';
+
+              const savingsPct =
+                getCell(12, 8) ||
+                getCell(11, 8) ||
+                getCell(11, 9) ||
+                0;
+
+              const savedThisMonth =
+                getCell(14, 8) ||
+                getCell(13, 8) ||
+                getCell(13, 9) ||
+                0;
+              
+              // Calculate totals from rows 27+
+              let totalExpensesActual = 0;
+              let totalIncomeActual = 0;
+              const expenseCategories = [];
+              const incomeCategories = [];
+              
+              // Monthly budget.xlsx: row 26 = Totals; categories from row 28 (index 27+). Cols A,D / G,J.
+              for (let i = 27; i <= range.e.r; i++) {
+                const row = rows[i];
+                if (!row) continue;
+                const expCat = row[0];
+                const expPlanned = parseFloat(row[2]);
+                const expActual = parseFloat(row[3]);
+                const expDiff = parseFloat(row[4]);
+                if (
+                  typeof expCat === 'string' &&
+                  expCat.trim() &&
+                  expCat.trim().toLowerCase() !== 'totals' &&
+                  !Number.isNaN(expActual) &&
+                  expActual > 0
+                ) {
+                  const planned = Number.isNaN(expPlanned) ? 0 : expPlanned;
+                  const diff = Number.isNaN(expDiff) ? 0 : expDiff;
+                  expenseCategories.push({
+                    category: expCat.trim(),
+                    planned,
+                    actual: expActual,
+                    diff
+                  });
+                  totalExpensesActual += expActual;
+                }
+                const incCat = row[6];
+                const incPlanned = parseFloat(row[7]);
+                const incActual = parseFloat(row[9]);
+                const incDiff = parseFloat(row[10]);
+                if (typeof incCat === 'string' && incCat.trim() && !Number.isNaN(incActual) && incActual > 0) {
+                  const planned = Number.isNaN(incPlanned) ? 0 : incPlanned;
+                  const diff = Number.isNaN(incDiff) ? incActual - planned : incDiff;
+                  incomeCategories.push({
+                    category: incCat.trim(),
+                    planned,
+                    actual: incActual,
+                    diff
+                  });
+                  totalIncomeActual += incActual;
+                }
+              }
+
+              if (totalExpensesActual === 0) {
+                totalExpensesActual = getCell(21, 2) || 0;
+              }
+              if (totalIncomeActual === 0) {
+                totalIncomeActual = getCell(21, 8) || 0;
+              }
+              
+              // Advanced budget analysis and validation
+              const netSavings = totalIncomeActual - totalExpensesActual;
+              const calculatedEndBalance = startingBalance + netSavings;
+              const balanceVariance = endBalance - calculatedEndBalance;
+              
+              // Verify balance consistency
+              const isBalanceConsistent = Math.abs(balanceVariance) < 0.01; // Allow small rounding differences
+              
+              // Category-wise variance analysis
+              const expenseVariance = expenseCategories.map(cat => ({
+                category: cat.category,
+                planned: cat.planned || 0,
+                actual: cat.actual || 0,
+                variance: (cat.actual || 0) - (cat.planned || 0),
+                variance_pct: cat.planned ? (((cat.actual || 0) - cat.planned) / cat.planned * 100) : 0
+              }));
+              
+              const incomeVariance = incomeCategories.map(cat => ({
+                category: cat.category,
+                planned: cat.planned || 0,
+                actual: cat.actual || 0,
+                variance: (cat.actual || 0) - (cat.planned || 0),
+                variance_pct: cat.planned ? (((cat.actual || 0) - cat.planned) / cat.planned * 100) : 0
+              }));
+              
+              // Detect potential issues
+              const issues = [];
+              if (!isBalanceConsistent) {
+                issues.push({
+                  type: 'balance_mismatch',
+                  severity: 'high',
+                  message: `Balance mismatch: Calculated ending balance (${fmt(calculatedEndBalance)}) doesn't match actual ending balance (${fmt(endBalance)})`,
+                  variance: balanceVariance
+                });
+              }
+              
+              if (totalExpensesActual === 0 && expenseCategories.length > 0) {
+                issues.push({
+                  type: 'expense_calculation',
+                  severity: 'medium',
+                  message: 'Expense categories found but total expenses calculated as 0'
+                });
+              }
+              
+              if (totalIncomeActual === 0 && incomeCategories.length > 0) {
+                issues.push({
+                  type: 'income_calculation',
+                  severity: 'medium',
+                  message: 'Income categories found but total income calculated as 0'
+                });
+              }
+              
+              // Create comprehensive budget data item
+              const budgetItem = {
+                sheet: sheetName,
+                account,
+                month,
+                year,
+                starting_balance: startingBalance,
+                start_balance: startingBalance,
+                end_balance: endBalance,
+                saved_this_month: savedThisMonth,
+                savings_label: String(savingsLabel),
+                savings_pct: parseFloat(savingsPct) || 0,
+                total_expenses_actual: totalExpensesActual,
+                total_income_actual: totalIncomeActual,
+                net_savings: netSavings,
+                calculated_end_balance: calculatedEndBalance,
+                balance_variance: balanceVariance,
+                is_balance_consistent: isBalanceConsistent,
+                expense_categories: expenseCategories,
+                income_categories: incomeCategories,
+                expense_variance: expenseVariance,
+                income_variance: incomeVariance,
+                issues: issues,
+                analysis: {
+                  starting_balance_source: startingBalance > 0 ? 'excel_extracted' : 'not_found',
+                  balance_calculation: `starting(${fmt(startingBalance)}) + net_savings(${fmt(netSavings)}) = calculated(${fmt(calculatedEndBalance)})`,
+                  actual_vs_calculated: `actual(${fmt(endBalance)}) vs calculated(${fmt(calculatedEndBalance)}) = variance(${fmt(balanceVariance)})`,
+                  totals: {
+                    total_expenses: totalExpensesActual,
+                    total_income: totalIncomeActual,
+                    net_savings: netSavings,
+                    savings_rate: totalIncomeActual > 0 ? (netSavings / totalIncomeActual * 100) : 0
+                  }
+                }
+              };
+              
+              console.log(`Budget analysis for ${sheetName}:`, {
+                starting_balance: startingBalance,
+                end_balance: endBalance,
+                net_savings: netSavings,
+                calculated_end_balance: calculatedEndBalance,
+                balance_variance: balanceVariance,
+                is_consistent: isBalanceConsistent,
+                issues_count: issues.length
+              });
+              
+              budgetData.push(budgetItem);
             });
-            
-            return analysis;
+
+            const sheets = {};
+            wb.SheetNames.forEach((name) => {
+              if (!/transaction/i.test(name)) return;
+              const tws = wb.Sheets[name];
+              if (!tws) return;
+              const txs = parseTransactionSheet(tws, name);
+              if (txs.length) sheets[name] = { type: 'transactions', transactions: txs };
+            });
+
+            const summary = {
+              totalSheets: wb.SheetNames.length,
+              transactionSheets: Object.keys(sheets).length,
+              balanceSheets: budgetData.length,
+              startingBalance: budgetData.reduce((s, b) => s + (Number(b.start_balance) || 0), 0),
+              endingBalance: budgetData.reduce((s, b) => s + (Number(b.end_balance) || 0), 0),
+              totalIncome: budgetData.reduce((s, b) => s + (Number(b.total_income_actual) || 0), 0),
+              totalExpenses: budgetData.reduce((s, b) => s + (Number(b.total_expenses_actual) || 0), 0)
+            };
+
+            return { budgetData, sheets, summary };
           };
           
           const extractTransactionFromRow = (row, columns, sheetName) => {
@@ -628,72 +814,67 @@ function App() {
           // Import transactions from all transaction sheets
           wb.SheetNames.forEach(sheetName => {
             const sheetAnalysis = analysis.sheets[sheetName];
-            if (sheetAnalysis.type === 'transactions') {
-              sheetAnalysis.transactions.forEach(transaction => {
-                const key = `${transaction.date}_${transaction.amount}_${transaction.account}_${transaction.type}`;
-                
-                if (existingKeys.has(key)) { 
-                  skipped++; 
-                  return; 
-                }
-                existingKeys.add(key);
-                
-                const newId = Math.max(...transactions.map(t => t.id), 0) + 1;
-                setTransactions(prev => [...prev, { id: newId, ...transaction }]);
-                imported++;
-                
-                // Auto-add categories if they don't exist
-                if (!categories[transaction.type].some(c => c.name === transaction.cat)) {
-                  setCategories(prev => ({
-                    ...prev,
-                    [transaction.type]: [...prev[transaction.type], { 
-                      name: transaction.cat, 
-                      color: '#888780' // Default color
-                    }]
-                  }));
-                }
-              });
-            }
+            if (!sheetAnalysis || sheetAnalysis.type !== 'transactions') return;
+            sheetAnalysis.transactions.forEach(transaction => {
+              const key = `${transaction.date}_${transaction.amount}_${transaction.account}_${transaction.type}`;
+              
+              if (existingKeys.has(key)) { 
+                skipped++; 
+                return; 
+              }
+              existingKeys.add(key);
+              
+              const newId = Math.max(...transactions.map(t => t.id), 0) + 1;
+              setTransactions(prev => [...prev, { id: newId, ...transaction }]);
+              imported++;
+              
+              // Auto-add categories if they don't exist
+              if (!categories[transaction.type].some(c => c.name === transaction.cat)) {
+                setCategories(prev => ({
+                  ...prev,
+                  [transaction.type]: [...prev[transaction.type], { 
+                    name: transaction.cat, 
+                    color: '#888780' // Default color
+                  }]
+                }));
+              }
+            });
           });
           
           // Update balance information if found
-          if (analysis.summary.balanceSheets > 0) {
-            let totalStartingBalance = 0;
-            let totalEndingBalance = 0;
+          if (analysis.budgetData && analysis.budgetData.length > 0) {
+            // Store budget data in state
+            setBudgetData(analysis.budgetData);
             
-            Object.values(analysis.sheets).forEach(sheet => {
-              if (sheet.type === 'balance') {
-                if (sheet.startingBalance !== null) totalStartingBalance += sheet.startingBalance;
-                if (sheet.endingBalance !== null) totalEndingBalance += sheet.endingBalance;
-              }
-            });
-            
-            // Store balance information in localStorage or state
+            console.log('Budget data imported:', analysis.budgetData);
+          }
+          
+          if (analysis.summary && analysis.summary.balanceSheets > 0) {
             const balanceInfo = {
-              startingBalance: totalStartingBalance,
-              endingBalance: totalEndingBalance,
+              startingBalance: analysis.summary.startingBalance,
+              endingBalance: analysis.summary.endingBalance,
               totalIncome: analysis.summary.totalIncome,
               totalExpenses: analysis.summary.totalExpenses,
               lastUpdated: new Date().toISOString()
             };
-            
             localStorage.setItem('excelBalanceInfo', JSON.stringify(balanceInfo));
           }
           
           // Generate detailed import result
+          const sum = analysis.summary || {};
           const resultMessage = `
 Import Analysis Complete:
-- Total Sheets: ${analysis.summary.totalSheets}
-- Transaction Sheets: ${analysis.summary.transactionSheets}
-- Balance Sheets: ${analysis.summary.balanceSheets}
+- Total Sheets: ${sum.totalSheets ?? 0}
+- Transaction Sheets: ${sum.transactionSheets ?? 0}
+- Balance Sheets: ${sum.balanceSheets ?? 0}
 - New Transactions Imported: ${imported}
 - Duplicates Skipped: ${skipped}
-${analysis.summary.balanceSheets > 0 ? `
+${(sum.balanceSheets ?? 0) > 0 ? `
 Balance Information Found:
-- Starting Balance: ${fmt(analysis.summary.startingBalance || 0)}
-- Total Income: ${fmt(analysis.summary.totalIncome)}
-- Total Expenses: ${fmt(analysis.summary.totalExpenses)}
-- Ending Balance: ${fmt(analysis.summary.endingBalance || 0)}` : ''}
+- Starting Balance: ${fmt(sum.startingBalance || 0)}
+- Total Income: ${fmt(sum.totalIncome)}
+- Total Expenses: ${fmt(sum.totalExpenses)}
+- Ending Balance: ${fmt(sum.endingBalance || 0)}` : ''}
           `.trim();
           
           setImportResult(resultMessage);
@@ -737,6 +918,7 @@ Balance Information Found:
         <div className={`tab ${activeTab === 'transactions' ? 'active' : ''}`} onClick={() => setActiveTab('transactions')}>Transactions</div>
         <div className={`tab ${activeTab === 'categories-view' ? 'active' : ''}`} onClick={() => setActiveTab('categories-view')}>Categories</div>
         <div className={`tab ${activeTab === 'manage-cats' ? 'active' : ''}`} onClick={() => setActiveTab('manage-cats')}>Manage categories</div>
+        <div className={`tab ${activeTab === 'monthly-statement' ? 'active' : ''}`} onClick={() => setActiveTab('monthly-statement')}>Monthly Statement</div>
         <div className={`tab ${activeTab === 'import-tab' ? 'active' : ''}`} onClick={() => setActiveTab('import-tab')}>Import</div>
       </div>
 
@@ -750,6 +932,9 @@ Balance Information Found:
           getAllMonths={getAllMonths}
           calculateMonthlyBalances={calculateMonthlyBalances}
           getBalanceForMonth={getBalanceForMonth}
+          budgetData={budgetData}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
         />
       )}
 
@@ -784,6 +969,14 @@ Balance Information Found:
           categories={categories}
           openCatModal={openCatModal}
           deleteCat={deleteCat}
+        />
+      )}
+
+      {activeTab === 'monthly-statement' && (
+        <MonthlyStatement 
+          budgetData={budgetData}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
         />
       )}
 

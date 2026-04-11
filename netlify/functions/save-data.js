@@ -21,14 +21,16 @@ exports.handler = async (event, context) => {
     // Save data to Supabase
     const { data, error } = await supabase
       .from('expense_tracker_data')
-      .upsert({
-        id: 'main',
-        transactions: transactions,
-        categories: categories,
-        budget_data: budgetData,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', 'main');
+      .upsert(
+        {
+          id: 'main',
+          transactions,
+          categories,
+          budget_data: budgetData,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' }
+      );
 
     if (error) {
       throw error;
