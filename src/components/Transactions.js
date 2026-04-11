@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ACCOUNTS } from '../constants/accounts';
+import { IconPencil, IconTrash } from './actionIcons';
 
 const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, getAllMonths, getCatNames, openTxnModal, deleteTxn, getBalanceForMonth }) => {
   const [filters, setFilters] = useState({ 
@@ -161,8 +162,10 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
           <span>Date</span>
           <span>Description</span>
           <span>Category</span>
-          <span>Amount</span>
-          <span></span>
+          <div className="txn-head-amt-actions">
+            <span>Amount</span>
+            <span>Actions</span>
+          </div>
         </div>
         <div>
           {!data.length ? (
@@ -176,7 +179,7 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
                   <span style={{ color: 'var(--color-text-secondary)', fontSize: '12px' }}>
                     {t.date}
                   </span>
-                  <span>
+                  <span className="txn-cell-desc">
                     {t.desc || '\u2014'}
                     <br />
                     <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
@@ -191,15 +194,24 @@ const Transactions = ({ transactions, categories, getColor, fmt, getFiltered, ge
                       {t.cat}
                     </span>
                   </span>
-                  <span style={{ 
-                    fontWeight: '500', 
-                    color: isE ? '#A32D2D' : '#3B6D11'
-                  }}>
-                    {isE ? '-' : '+'}{fmt(t.amount)}
-                  </span>
-                  <div style={{ display: 'flex', gap: '3px', justifyContent: 'flex-end' }}>
-                    <button className="icon-btn" onClick={() => openTxnModal(t.id)}></button>
-                    <button className="icon-btn" onClick={() => deleteTxn(t.id)}></button>
+                  <div className="txn-amt-actions">
+                    <span
+                      className="txn-amt"
+                      style={{
+                        fontWeight: '500',
+                        color: isE ? '#A32D2D' : '#3B6D11'
+                      }}
+                    >
+                      {isE ? '-' : '+'}{fmt(t.amount)}
+                    </span>
+                    <div className="txn-actions">
+                      <button type="button" className="icon-btn" aria-label="Edit transaction" onClick={() => openTxnModal(t.id)}>
+                        <IconPencil />
+                      </button>
+                      <button type="button" className="icon-btn" aria-label="Delete transaction" onClick={() => deleteTxn(t.id)}>
+                        <IconTrash />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

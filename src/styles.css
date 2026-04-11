@@ -45,14 +45,19 @@
 .legend-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px}
 .legend-item{font-size:11px;color:var(--color-text-secondary);display:flex;align-items:center;gap:3px}
 .ldot{width:8px;height:8px;border-radius:2px;display:inline-block}
-.tbl-wrap{border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.tbl-wrap{border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 .tbl-head{display:grid;padding:7px 12px;background:var(--color-background-secondary);font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.4px}
 .tbl-row{display:grid;padding:8px 12px;border-top:.5px solid var(--color-border-tertiary);align-items:center;font-size:13px}
 .tbl-row:hover{background:var(--color-background-secondary)}
-.txn-cols{grid-template-columns:88px 1fr 110px 120px 80px}
-.txn-cols span:nth-child(4){text-align:right}
+/* Amount + actions share the last column so icons are never clipped off-screen */
+.txn-cols{grid-template-columns:88px minmax(0,1fr) 110px minmax(168px,1fr)}
+.txn-cell-desc{min-width:0;overflow-wrap:break-word;word-break:break-word}
+.txn-head-amt-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;width:100%}
+.txn-amt-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;width:100%;min-width:0}
+.txn-amt{flex:0 1 auto;text-align:right}
+.txn-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
 .cat-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:500}
-.icon-btn{background:none;border:none;cursor:pointer;padding:2px 5px;border-radius:4px;font-size:13px;color:var(--color-text-secondary)}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;min-width:30px;min-height:30px;background:none;border:none;cursor:pointer;padding:2px;border-radius:4px;font-size:13px;color:var(--color-text-secondary)}
 .icon-btn:hover{background:var(--color-background-secondary);color:var(--color-text-primary)}
 .sum-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:.875rem}
 .sum-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:8px 10px}

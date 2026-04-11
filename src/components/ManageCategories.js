@@ -1,4 +1,5 @@
 import React from 'react';
+import { IconPencil, IconTrash } from './actionIcons';
 
 const ManageCategories = ({ categories, openCatModal, deleteCat }) => {
   return (
@@ -16,8 +17,12 @@ const ManageCategories = ({ categories, openCatModal, deleteCat }) => {
           <div key={c.name} className="cat-item">
             <div className="cat-dot" style={{ background: c.color }}></div>
             <span className="cat-item-name">{c.name}</span>
-            <button className="icon-btn" onClick={() => openCatModal(c.name, 'expense')}></button>
-            <button className="icon-btn" onClick={() => deleteCat(c.name, 'expense')}></button>
+            <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'expense')}>
+              <IconPencil />
+            </button>
+            <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'expense')}>
+              <IconTrash />
+            </button>
           </div>
         ))}
       </div>
@@ -30,8 +35,12 @@ const ManageCategories = ({ categories, openCatModal, deleteCat }) => {
           <div key={c.name} className="cat-item">
             <div className="cat-dot" style={{ background: c.color }}></div>
             <span className="cat-item-name">{c.name}</span>
-            <button className="icon-btn" onClick={() => openCatModal(c.name, 'income')}></button>
-            <button className="icon-btn" onClick={() => deleteCat(c.name, 'income')}></button>
+            <button type="button" className="icon-btn" aria-label={`Edit category ${c.name}`} onClick={() => openCatModal(c.name, 'income')}>
+              <IconPencil />
+            </button>
+            <button type="button" className="icon-btn" aria-label={`Delete category ${c.name}`} onClick={() => deleteCat(c.name, 'income')}>
+              <IconTrash />
+            </button>
           </div>
         ))}
       </div>
