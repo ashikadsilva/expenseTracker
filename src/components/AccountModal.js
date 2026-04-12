@@ -6,6 +6,8 @@ const AccountModal = ({ show, onClose, onSave, editAccount, palette }) => {
   const [label, setLabel] = useState('');
   const [keywordsText, setKeywordsText] = useState('');
   const [chipColor, setChipColor] = useState('#185FA5');
+  const [startingBalance, setStartingBalance] = useState('');
+  const [currentBalance, setCurrentBalance] = useState('');
 
   useEffect(() => {
     if (editAccount) {
@@ -13,11 +15,23 @@ const AccountModal = ({ show, onClose, onSave, editAccount, palette }) => {
       setLabel(editAccount.label);
       setKeywordsText((editAccount.keywords || []).join(', '));
       setChipColor(editAccount.chipColor || '#185FA5');
+      setStartingBalance(
+        editAccount.startingBalance !== undefined && editAccount.startingBalance !== null
+          ? String(editAccount.startingBalance)
+          : '0'
+      );
+      setCurrentBalance(
+        editAccount.currentBalance !== undefined && editAccount.currentBalance !== null
+          ? String(editAccount.currentBalance)
+          : '0'
+      );
     } else {
       setId('');
       setLabel('');
       setKeywordsText('');
       setChipColor(palette[0] || '#185FA5');
+      setStartingBalance('0');
+      setCurrentBalance('0');
     }
   }, [editAccount, show, palette]);
 
@@ -52,6 +66,8 @@ const AccountModal = ({ show, onClose, onSave, editAccount, palette }) => {
       label: trimmedLabel,
       keywords,
       chipColor,
+      startingBalance,
+      currentBalance,
     });
   };
 
@@ -107,6 +123,30 @@ const AccountModal = ({ show, onClose, onSave, editAccount, palette }) => {
             <div className="form-hint">
               Sheet names from Excel are matched (case-insensitive). Longest match wins.
             </div>
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Starting balance (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(e.target.value)}
+            />
+            <div className="form-hint">Balance when you started tracking this account.</div>
+          </div>
+
+          <div className="form-row">
+            <label className="form-label">Current balance (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={currentBalance}
+              onChange={(e) => setCurrentBalance(e.target.value)}
+            />
+            <div className="form-hint">Updated when you add transactions from + Add Entry, or manually here.</div>
           </div>
 
           <div className="form-row">

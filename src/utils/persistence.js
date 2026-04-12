@@ -6,6 +6,11 @@ const LS_CAT = 'expenseTrackerCategories';
 const LS_BUDGET = 'expenseTrackerBudgetData';
 const LS_ACCOUNTS = 'expenseTrackerAccounts';
 
+/** Primary keys used by deployed app (Netlify); legacy keys kept in sync for migration. */
+export const LS_ET_TRANSACTIONS = 'et_transactions';
+export const LS_ET_SUMMARY = 'et_summary';
+export const LS_ET_ACCOUNTS = 'et_accounts';
+
 /** Default category lists when there is no saved data yet. */
 export const DEFAULT_CATEGORIES = {
   expense: [
@@ -97,16 +102,36 @@ export function getSupabaseClient() {
   return getClient();
 }
 
+function parseJsonArray(raw, fallback = []) {
+  if (raw == null || raw === '') return fallback;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function readLocalStorage() {
   try {
-    const localTransactions = localStorage.getItem(LS_TXN);
+    const etTxn = localStorage.getItem(LS_ET_TRANSACTIONS);
+    const legacyTxn = localStorage.getItem(LS_TXN);
+    const transactions = parseJsonArray(
+      etTxn != null ? etTxn : legacyTxn,
+      []
+    );
+
+    const etSummary = localStorage.getItem(LS_ET_SUMMARY);
+    const legacyBudget = localStorage.getItem(LS_BUDGET);
+    const budgetData = parseJsonArray(etSummary != null ? etSummary : legacyBudget, []);
+
     const localCategories = localStorage.getItem(LS_CAT);
-    const localBudgetData = localStorage.getItem(LS_BUDGET);
     const localAccounts = localStorage.getItem(LS_ACCOUNTS);
+
     return {
-      transactions: localTransactions ? JSON.parse(localTransactions) : [],
+      transactions,
       categories: localCategories ? JSON.parse(localCategories) : null,
-      budgetData: localBudgetData ? JSON.parse(localBudgetData) : [],
+      budgetData,
       accounts: localAccounts ? JSON.parse(localAccounts) : null,
     };
   } catch {
@@ -115,10 +140,27 @@ function readLocalStorage() {
 }
 
 function writeLocalStorage(transactions, categories, budgetData, accounts) {
-  localStorage.setItem(LS_TXN, JSON.stringify(transactions));
+  const txnStr = JSON.stringify(Array.isArray(transactions) ? transactions : []);
+  const budgetStr = JSON.stringify(Array.isArray(budgetData) ? budgetData : []);
+  const accStr = JSON.stringify(Array.isArray(accounts) ? accounts : []);
+  localStorage.setItem(LS_ET_TRANSACTIONS, txnStr);
+  localStorage.setItem(LS_ET_SUMMARY, budgetStr);
+  localStorage.setItem(LS_TXN, txnStr);
+  localStorage.setItem(LS_BUDGET, budgetStr);
   localStorage.setItem(LS_CAT, JSON.stringify(categories));
-  localStorage.setItem(LS_BUDGET, JSON.stringify(budgetData));
-  localStorage.setItem(LS_ACCOUNTS, JSON.stringify(accounts));
+  localStorage.setItem(LS_ACCOUNTS, accStr);
+  localStorage.setItem(LS_ET_ACCOUNTS, accStr);
+}
+
+/** Reload accounts array from localStorage (same keys as write). */
+export function readStoredAccounts() {
+  try {
+    const raw = localStorage.getItem(LS_ET_ACCOUNTS) || localStorage.getItem(LS_ACCOUNTS);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -150,8 +192,8 @@ export async function loadAppData(userId) {
         : normalizeCategories(null);
       const accounts = normalizeAccounts(local.accounts);
       const hasAny =
-        (local.transactions && local.transactions.length > 0) ||
-        (local.budgetData && local.budgetData.length > 0) ||
+        (Array.isArray(local.transactions) && local.transactions.length > 0) ||
+        (Array.isArray(local.budgetData) && local.budgetData.length > 0) ||
         (local.categories &&
           (local.categories.expense?.length || local.categories.income?.length));
       if (hasAny) {
@@ -184,8 +226,8 @@ export async function loadAppData(userId) {
   const categories = local.categories ? normalizeCategories(local.categories) : normalizeCategories(null);
   const accounts = normalizeAccounts(local.accounts);
   const hasAny =
-    (local.transactions && local.transactions.length > 0) ||
-    (local.budgetData && local.budgetData.length > 0) ||
+    (Array.isArray(local.transactions) && local.transactions.length > 0) ||
+    (Array.isArray(local.budgetData) && local.budgetData.length > 0) ||
     (local.categories && (local.categories.expense?.length || local.categories.income?.length));
 
   if (hasAny) {

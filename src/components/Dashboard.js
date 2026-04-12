@@ -1,9 +1,22 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Chart, registerables } from 'chart.js';
+import React, { useState, useMemo, useCallback, useId } from 'react';
+import {
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  AreaChart,
+  Area,
+  ReferenceLine,
+} from 'recharts';
 import { getAccountBadgeStyle } from '../utils/accounts';
 import { budgetMonthYearToIsoKey } from '../utils/monthKeys';
-
-Chart.register(...registerables);
 
 const monthLabels = {
   '2025-08': 'Aug 2025', '2025-09': 'Sep 2025', '2025-10': 'Oct 2025', '2025-11': 'Nov 2025',
@@ -20,31 +33,41 @@ function formatMonthKey(key) {
   return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
 }
 
-const COL = {
-  expenseBar: 'rgba(226, 154, 148, 0.92)',
-  incomeBar: 'rgba(139, 168, 136, 0.92)',
-  balanceLine: '#185FA5',
-  netPos: 'rgba(139, 168, 136, 0.9)',
-  netNeg: 'rgba(226, 154, 148, 0.95)',
-  pieExp: '#E29A94',
-  pieInc: '#8BA888',
-  grid: 'rgba(0, 0, 0, 0.06)'
+/** Dashboard chart palette (matches reference cards). */
+const CHART_COL = {
+  expense: '#d98880',
+  income: '#82ad8d',
+  balance: '#2e5a88',
 };
+
+/** Sum expense category amounts from budget rows (individual or combined-with-sheets). */
+function aggregateExpenseCategoriesFromBudgetRows(rows, viewMode) {
+    const catMap = {};
+  const addFromItem = (item) => {
+    for (const c of item.expense_categories || []) {
+      const name = (c.category || '').trim() || 'Other';
+      catMap[name] = (catMap[name] || 0) + (Number(c.actual) || 0);
+    }
+  };
+  for (const row of rows) {
+    if (viewMode === 'combined' && Array.isArray(row.sheets) && row.sheets.length) {
+      row.sheets.forEach(addFromItem);
+    } else {
+      addFromItem(row);
+    }
+  }
+  return catMap;
+}
 
 const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFiltered, getAllMonths, calculateMonthlyBalances, getBalanceForMonth, budgetData, viewMode, setViewMode }) => {
   const [filters, setFilters] = useState({ month: 'all', account: 'all' });
-  const groupedBarRef = useRef(null);
-  const balanceLineRef = useRef(null);
-  const netBarRef = useRef(null);
-  const catChartRef = useRef(null);
-  const pieMixRef = useRef(null);
 
   const getFilteredBudgetData = useCallback(() => {
     if (!budgetData || budgetData.length === 0) return [];
-
+    
     if (viewMode === 'combined') {
       const combined = {};
-
+      
       budgetData.forEach((item) => {
         const monthKey = `${item.month} ${item.year}`;
         if (!combined[monthKey]) {
@@ -58,7 +81,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
             combinedExpenses: 0
           };
         }
-
+        
         const monthData = combined[monthKey];
         monthData.sheets.push(item);
         monthData.combinedStartBalance += item.start_balance || 0;
@@ -66,11 +89,49 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
         monthData.combinedIncome += item.total_income_actual || 0;
         monthData.combinedExpenses += item.total_expenses_actual || 0;
       });
-
+      
       return Object.values(combined);
     }
     return budgetData;
   }, [budgetData, viewMode]);
+
+  const filteredBudgetRowsForPeriod = useMemo(() => {
+    if (!budgetData?.length) return [];
+    return getFilteredBudgetData().filter((item) => {
+      const iso = budgetMonthYearToIsoKey(item.month, item.year);
+      if (filters.month !== 'all' && iso !== filters.month) return false;
+      if (viewMode === 'individual' && filters.account !== 'all' && item.account !== filters.account) return false;
+      return true;
+    });
+  }, [budgetData, filters.month, filters.account, viewMode, getFilteredBudgetData]);
+
+  const budgetPeriodRollup = useMemo(() => {
+    if (!filteredBudgetRowsForPeriod.length) return null;
+    let totE = 0;
+    let totI = 0;
+    for (const item of filteredBudgetRowsForPeriod) {
+      if (viewMode === 'combined') {
+        totE += Number(item.combinedExpenses) || 0;
+        totI += Number(item.combinedIncome) || 0;
+      } else {
+        totE += Number(item.total_expenses_actual) || 0;
+        totI += Number(item.total_income_actual) || 0;
+      }
+    }
+    const catMap = aggregateExpenseCategoriesFromBudgetRows(
+      filteredBudgetRowsForPeriod,
+      viewMode
+    );
+    return { totE, totI, catMap };
+  }, [filteredBudgetRowsForPeriod, viewMode]);
+
+  const months = useMemo(() => {
+    const fromTx = getAllMonths();
+    const fromBudget = (budgetData || [])
+      .map((b) => budgetMonthYearToIsoKey(b.month, b.year))
+      .filter(Boolean);
+    return [...new Set([...fromTx, ...fromBudget])].sort();
+  }, [budgetData, transactions, getAllMonths]);
 
   const dashboardChartSeries = useMemo(() => {
     const txFallback = () => {
@@ -120,7 +181,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
         map[iso].inc += Number(item.combinedIncome) || 0;
         map[iso].start += Number(item.combinedStartBalance) || 0;
         map[iso].end += Number(item.combinedEndBalance) || 0;
-      } else {
+    } else {
         map[iso].spent += Number(item.total_expenses_actual) || 0;
         map[iso].inc += Number(item.total_income_actual) || 0;
         map[iso].start += Number(item.start_balance) || 0;
@@ -174,268 +235,96 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
       .sort((a, b) => (a.iso || '').localeCompare(b.iso || ''));
   }, [budgetData, filters.month, filters.account, viewMode, getFilteredBudgetData]);
 
-  useEffect(() => {
+  const rechartsModels = useMemo(() => {
+    const data0 = getFiltered(filters);
+    const exp0 = data0.filter((t) => t.type === 'expense');
+    const inc0 = data0.filter((t) => t.type === 'income');
+    const txTotE0 = exp0.reduce((s, t) => s + t.amount, 0);
+    const txTotI0 = inc0.reduce((s, t) => s + t.amount, 0);
+    const useBudgetCharts =
+      budgetPeriodRollup &&
+      (budgetPeriodRollup.totE > 0 || budgetPeriodRollup.totI > 0) &&
+      txTotE0 + txTotI0 === 0;
+    const catMapForCharts = {};
+    if (exp0.length) {
+      exp0.forEach((t) => {
+        catMapForCharts[t.cat] = (catMapForCharts[t.cat] || 0) + t.amount;
+      });
+    } else if (useBudgetCharts && budgetPeriodRollup.catMap) {
+      Object.assign(catMapForCharts, budgetPeriodRollup.catMap);
+    }
+    const pieTotE0 = useBudgetCharts ? budgetPeriodRollup.totE : txTotE0;
+    if (useBudgetCharts && pieTotE0 > 0 && Object.keys(catMapForCharts).length === 0) {
+      catMapForCharts['Budget summary'] = pieTotE0;
+    }
+    const sortedCats = Object.entries(catMapForCharts).sort((a, b) => b[1] - a[1]);
+    const donutRows = sortedCats.map(([name, value]) => ({
+      name,
+      value,
+      fill: getColor(name),
+    }));
+    const barRows = sortedCats.slice(0, 7).map(([name, amount]) => ({
+      name,
+      amount,
+      fill: getColor(name),
+    }));
     const { chartMonths, displayLabels, mE, mI, endBals, netSaved } = dashboardChartSeries;
-    const data = getFiltered(filters);
-    const exp = data.filter(t => t.type === 'expense');
-    const inc = data.filter(t => t.type === 'income');
-
-    const yTickK = (v) => {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return v;
-      if (Math.abs(n) >= 1000) return (n / 1000).toFixed(0) + 'k';
-      return n;
+    const monthlyBarData = chartMonths.map((_, i) => ({
+      month: displayLabels[i] || chartMonths[i],
+      expense: mE[i] || 0,
+      income: mI[i] || 0,
+      netSaved: netSaved[i] || 0,
+      endBalance: endBals[i] || 0,
+    }));
+    const pieTotEPeriod = useBudgetCharts ? budgetPeriodRollup.totE : txTotE0;
+    const pieTotIPeriod = useBudgetCharts ? budgetPeriodRollup.totI : txTotI0;
+    const hasPeriodPie = pieTotEPeriod + pieTotIPeriod > 0;
+    const piePeriodData = [
+      { name: 'Expenses', value: pieTotEPeriod, fill: CHART_COL.expense },
+      { name: 'Income', value: pieTotIPeriod, fill: CHART_COL.income },
+    ];
+    return {
+      monthlyBarData,
+      donutRows,
+      barRows,
+      piePeriodData,
+      hasTrend: chartMonths.length > 0,
+      hasDonut: donutRows.some((r) => r.value > 0),
+      hasBar: barRows.length > 0,
+      hasPeriodPie,
     };
-
-    const commonScale = {
-      ticks: { font: { size: 11 }, color: '#6c757d' },
-      grid: { color: COL.grid },
-      border: { display: false }
-    };
-
-    const destroy = (ref) => {
-      if (ref.current) {
-        ref.current.destroy();
-        ref.current = null;
-      }
-    };
-
-    destroy(groupedBarRef);
-    destroy(balanceLineRef);
-    destroy(netBarRef);
-    destroy(catChartRef);
-    destroy(pieMixRef);
-
-    if (chartMonths.length && document.getElementById('dashGroupedBar')) {
-      groupedBarRef.current = new Chart(document.getElementById('dashGroupedBar'), {
-        type: 'bar',
-        data: {
-          labels: displayLabels,
-          datasets: [
-            { label: 'Expenses', data: mE, backgroundColor: COL.expenseBar, borderWidth: 0, borderRadius: 5, maxBarThickness: 36 },
-            { label: 'Income', data: mI, backgroundColor: COL.incomeBar, borderWidth: 0, borderRadius: 5, maxBarThickness: 36 }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: {
-              display: true,
-              position: 'top',
-              align: 'start',
-              labels: {
-                boxWidth: 10,
-                boxHeight: 10,
-                padding: 14,
-                font: { size: 11, weight: '500' },
-                color: '#495057',
-                usePointStyle: true,
-                pointStyle: 'rectRounded'
-              }
-            },
-            tooltip: {
-              callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.raw)}` }
-            }
-          },
-          scales: {
-            x: {
-              ...commonScale,
-              ticks: { ...commonScale.ticks, maxRotation: 45, minRotation: 0 },
-              grid: { display: false }
-            },
-            y: {
-              beginAtZero: true,
-              ...commonScale,
-              ticks: { ...commonScale.ticks, callback: (v) => yTickK(v) }
-            }
-          }
-        }
-      });
-    }
-
-    if (chartMonths.length && document.getElementById('dashBalanceLine')) {
-      balanceLineRef.current = new Chart(document.getElementById('dashBalanceLine'), {
-        type: 'line',
-        data: {
-          labels: displayLabels,
-          datasets: [{
-            label: 'End balance',
-            data: endBals,
-            borderColor: COL.balanceLine,
-            borderWidth: 2.5,
-            tension: 0.42,
-            fill: true,
-            pointRadius: 5,
-            pointHoverRadius: 6,
-            pointBackgroundColor: '#fff',
-            pointBorderColor: COL.balanceLine,
-            pointBorderWidth: 2,
-            backgroundColor: (context) => {
-              const c = context.chart;
-              const { ctx, chartArea } = c;
-              if (!chartArea) return 'rgba(24,95,165,.12)';
-              const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-              g.addColorStop(0, 'rgba(24, 95, 165, 0.28)');
-              g.addColorStop(1, 'rgba(24, 95, 165, 0)');
-              return g;
-            }
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: { callbacks: { label: (ctx) => `${fmt(ctx.raw)}` } }
-          },
-          scales: {
-            x: {
-              ...commonScale,
-              ticks: { ...commonScale.ticks, maxRotation: 45, minRotation: 0 },
-              grid: { display: false }
-            },
-            y: {
-              ...commonScale,
-              ticks: { ...commonScale.ticks, callback: (v) => yTickK(v) }
-            }
-          }
-        }
-      });
-    }
-
-    if (chartMonths.length && document.getElementById('dashNetBar')) {
-      netBarRef.current = new Chart(document.getElementById('dashNetBar'), {
-        type: 'bar',
-        data: {
-          labels: displayLabels,
-          datasets: [{
-            label: 'Saved / lost',
-            data: netSaved,
-            backgroundColor: netSaved.map((v) => (v >= 0 ? COL.netPos : COL.netNeg)),
-            borderWidth: 0,
-            borderRadius: 5,
-            maxBarThickness: 28
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => {
-                  const v = ctx.raw;
-                  return (v >= 0 ? 'Saved: ' : 'Lost: ') + fmt(Math.abs(v));
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              ...commonScale,
-              ticks: { ...commonScale.ticks, maxRotation: 45, minRotation: 0 },
-              grid: { display: false }
-            },
-            y: {
-              ...commonScale,
-              ticks: { ...commonScale.ticks, callback: (v) => yTickK(v) }
-            }
-          }
-        }
-      });
-    }
-
-    const catMap = {};
-    exp.forEach(t => { catMap[t.cat] = (catMap[t.cat] || 0) + t.amount; });
-    const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
-    const labels = cats.map(c => c[0]);
-    const vals = cats.map(c => c[1]);
-    const colors = labels.map(l => getColor(l));
-
-    if (vals.length && document.getElementById('catChart')) {
-      catChartRef.current = new Chart(document.getElementById('catChart'), {
-        type: 'doughnut',
-        data: {
-          labels,
-          datasets: [{
-            data: vals,
-            backgroundColor: colors.map((c) => (c + 'CC')),
-            borderWidth: 2,
-            borderColor: '#fff',
-            hoverOffset: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '62%',
-          plugins: {
-            legend: { display: false },
-            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}` } }
-          }
-        }
-      });
-    }
-
-    const totE = exp.reduce((s, t) => s + t.amount, 0);
-    const totI = inc.reduce((s, t) => s + t.amount, 0);
-    if (totE + totI > 0 && document.getElementById('dashIncomeExpensePie')) {
-      pieMixRef.current = new Chart(document.getElementById('dashIncomeExpensePie'), {
-        type: 'pie',
-        data: {
-          labels: ['Expenses', 'Income'],
-          datasets: [{
-            data: [totE, totI],
-            backgroundColor: [COL.pieExp, COL.pieInc],
-            borderWidth: 2,
-            borderColor: '#fff'
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { boxWidth: 10, padding: 12, font: { size: 11 }, color: '#495057', usePointStyle: true }
-            },
-            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}` } }
-          }
-        }
-      });
-    }
-
-    return () => {
-      destroy(groupedBarRef);
-      destroy(balanceLineRef);
-      destroy(netBarRef);
-      destroy(catChartRef);
-      destroy(pieMixRef);
-    };
-  }, [dashboardChartSeries, filters, transactions, getColor, fmt, getFiltered]);
+  }, [dashboardChartSeries, budgetPeriodRollup, getFiltered, filters, transactions, getColor]);
 
   const data = getFiltered(filters);
-  const exp = data.filter(t => t.type === 'expense');
-  const inc = data.filter(t => t.type === 'income');
-  const totE = exp.reduce((s, t) => s + t.amount, 0);
-  const totI = inc.reduce((s, t) => s + t.amount, 0);
+  const exp = data.filter((t) => t.type === 'expense');
+  const inc = data.filter((t) => t.type === 'income');
+  const txTotE = exp.reduce((s, t) => s + t.amount, 0);
+  const txTotI = inc.reduce((s, t) => s + t.amount, 0);
+  const useBudgetSummary =
+    budgetPeriodRollup &&
+    (budgetPeriodRollup.totE > 0 || budgetPeriodRollup.totI > 0) &&
+    txTotE + txTotI === 0;
+  const totE = useBudgetSummary
+    ? budgetPeriodRollup.totE
+    : txTotE;
+  const totI = useBudgetSummary
+    ? budgetPeriodRollup.totI
+    : txTotI;
   const net = totI - totE;
 
   const catMap = {};
-  exp.forEach(t => { catMap[t.cat] = (catMap[t.cat] || 0) + t.amount; });
+  if (exp.length && txTotE > 0) {
+    exp.forEach((t) => {
+      catMap[t.cat] = (catMap[t.cat] || 0) + t.amount;
+    });
+  } else if (useBudgetSummary && budgetPeriodRollup.catMap) {
+    Object.assign(catMap, budgetPeriodRollup.catMap);
+  }
+  if (useBudgetSummary && totE > 0 && Object.keys(catMap).length === 0) {
+    catMap['Budget summary'] = totE;
+  }
   const cats = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
-  const labels = cats.map(c => c[0]);
-
-  const months = useMemo(() => {
-    const fromTx = getAllMonths();
-    const fromBudget = (budgetData || [])
-      .map((b) => budgetMonthYearToIsoKey(b.month, b.year))
-      .filter(Boolean);
-    return [...new Set([...fromTx, ...fromBudget])].sort();
-  }, [budgetData, transactions, getAllMonths]);
+  const labels = cats.map((c) => c[0]);
 
   const fmtSigned = (n) => {
     if (n === null || n === undefined) return '₹';
@@ -443,13 +332,24 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
     return sign + '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
   };
 
-  const { chartMonths, source: dashChartSource } = dashboardChartSeries;
+  const { source: dashChartSource } = dashboardChartSeries;
+  const { monthlyBarData, donutRows, barRows, piePeriodData, hasTrend, hasDonut, hasBar, hasPeriodPie } = rechartsModels;
+  const balanceFillId = `dashBalGrad-${useId().replace(/\W/g, '')}`;
+
+  const axisMoneyTick = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return v;
+    if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(0)}k`;
+    return String(Math.round(n));
+  };
+
+  const donutChartData = donutRows.filter((r) => r.value > 0);
 
   return (
     <div className="section">
       <div className="filters">
-        <select
-          className="filter-select"
+        <select 
+          className="filter-select" 
           value={filters.month}
           onChange={(e) => setFilters(prev => ({ ...prev, month: e.target.value }))}
         >
@@ -458,7 +358,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
             <option key={m} value={m}>{monthLabels[m] || formatMonthKey(m)}</option>
           ))}
         </select>
-        <select
+        <select 
           className="filter-select"
           value={filters.account}
           onChange={(e) => setFilters(prev => ({ ...prev, account: e.target.value }))}
@@ -526,7 +426,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
                   if (viewMode === 'individual' && filters.account !== 'all' && item.account !== filters.account) return false;
                   return true;
                 });
-
+                
                 if (filteredBudget.length === 0) {
                   return (
                     <div style={{ textAlign: 'center', padding: '20px', color: 'var(--color-text-secondary)' }}>
@@ -534,7 +434,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
                     </div>
                   );
                 }
-
+                
                 return filteredBudget.map(item => {
                   const startBalance = viewMode === 'combined' ? item.combinedStartBalance : (item.start_balance || 0);
                   const endBalance = viewMode === 'combined' ? item.combinedEndBalance : (item.end_balance || 0);
@@ -543,9 +443,9 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
                   const difference = endBalance - startBalance;
                   const iso = budgetMonthYearToIsoKey(item.month, item.year);
                   const monthDisplay = (iso && (monthLabels[iso] || formatMonthKey(iso))) || `${item.month} ${item.year}`;
-
+                  
                   return (
-                    <div key={viewMode === 'combined' ? `${item.month}-${item.year}` : item.sheet}
+                    <div key={viewMode === 'combined' ? `${item.month}-${item.year}` : item.sheet} 
                       className="tbl-row dash-budget-grid">
                       <span style={{ fontWeight: '500' }}>
                         {monthDisplay}
@@ -590,7 +490,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
           </div>
         </div>
       )}
-
+      
       <div className="cards-row">
         <div className="mcard">
           <div className="mcard-label">Total expenses</div>
@@ -609,6 +509,64 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
           <div className="mcard-val blue">{data.length}</div>
         </div>
       </div>
+
+      {accounts && accounts.length > 0 && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div className="chart-title-caps" style={{ marginBottom: '10px' }}>
+            Account balances
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: '12px',
+            }}
+          >
+            {accounts.map((a) => {
+              const start = Number(a.startingBalance) || 0;
+              const cur = Number(a.currentBalance) || 0;
+              const ch = cur - start;
+              const chPos = ch >= 0;
+              const chStr = (ch >= 0 ? '+' : '-') + '₹' + Math.abs(Math.round(ch)).toLocaleString('en-IN');
+              return (
+                <div
+                  key={a.id}
+                  className="chart-card"
+                  style={{ padding: '12px 14px', marginBottom: 0, boxShadow: '0 1px 3px rgba(0,0,0,.07)' }}
+                >
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--color-text-primary)', marginBottom: '6px' }}>
+                    {a.label}
+                  </div>
+                  <div style={{ fontSize: '15px', fontWeight: '600', color: cur >= start ? '#3B6D11' : '#A32D2D' }}>
+                    {fmt(cur)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '6px' }}>
+                    vs starting {fmt(start)}
+                  </div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', marginTop: '4px', color: chPos ? '#3B6D11' : '#A32D2D' }}>
+                    {chStr}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {useBudgetSummary ? (
+        <div
+          style={{
+            fontSize: '12px',
+            color: 'var(--color-text-secondary)',
+            marginBottom: '10px',
+            lineHeight: 1.45,
+          }}
+        >
+          These totals match <strong>Budget Overview</strong> (Excel summary). The transaction count is{' '}
+          <strong>0</strong> because no line-item sheet was imported — use sheet names containing{' '}
+          <strong>Transaction</strong> in the sheet name, or add rows with <strong>+ Add Entry</strong>.
+        </div>
+      ) : null}
 
       <div className="chart-card" style={{ marginBottom: '1rem' }}>
         <div className="chart-title">Monthly Balance Summary</div>
@@ -684,7 +642,7 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
               (() => {
                 const monthlyData = calculateMonthlyBalances(filters.account);
                 const sortedMonths = Object.keys(monthlyData).sort();
-
+                
                 return sortedMonths.length > 0 ? (
                   sortedMonths.map(month => {
                     const balance = monthlyData[month];
@@ -743,15 +701,25 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
           <div className="chart-card">
             <div className="chart-title-caps">Income vs expenses</div>
             {dashChartSource === 'budget' && (
-              <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginBottom: '6px', lineHeight: 1.35 }}>
+              <div className="dash-chart-sub">
                 Spent / income from <strong>Budget Overview</strong> (same filters as the table above).
               </div>
             )}
-            <div className="dash-chart-tall">
-              {chartMonths.length ? (
-                <canvas id="dashGroupedBar" role="img" aria-label="Income versus expenses by month" />
+            <div className="dash-chart-tall" role="img" aria-label="Income versus expenses by month">
+              {hasTrend ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyBarData} margin={{ top: 28, right: 10, left: 4, bottom: 4 }} barGap={2}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6c757d' }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 12, fill: '#6c757d' }} tickFormatter={axisMoneyTick} />
+                    <Tooltip formatter={(value) => fmt(value)} contentStyle={{ fontSize: 12 }} />
+                    <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12, paddingBottom: 2 }} iconType="square" />
+                    <Bar dataKey="expense" name="Expenses" fill={CHART_COL.expense} radius={[4, 4, 0, 0]} maxBarSize={34} />
+                    <Bar dataKey="income" name="Income" fill={CHART_COL.income} radius={[4, 4, 0, 0]} maxBarSize={34} />
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="empty" style={{ padding: '2rem 1rem' }}>
+                <div className="dash-chart-empty">
                   {dashChartSource === 'budget' ? 'No budget rows for these filters.' : 'Add transactions to see this chart.'}
                 </div>
               )}
@@ -760,15 +728,31 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
           <div className="chart-card">
             <div className="chart-title-caps">Monthly saved / lost</div>
             {dashChartSource === 'budget' && (
-              <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginBottom: '6px', lineHeight: 1.35 }}>
-                End balance minus start balance from <strong>Budget Overview</strong> (same as the Difference column when values are rolled up by month).
+              <div className="dash-chart-sub">
+                End balance minus start balance from <strong>Budget Overview</strong> (rolled up by month).
               </div>
             )}
-            <div className="dash-chart-tall">
-              {chartMonths.length ? (
-                <canvas id="dashNetBar" role="img" aria-label="Net saved or lost per month" />
+            <div className="dash-chart-tall" role="img" aria-label="Net saved or lost per month">
+              {hasTrend ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyBarData} margin={{ top: 8, right: 10, left: 4, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} />
+                    <ReferenceLine y={0} stroke="#ced4da" strokeWidth={1} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6c757d' }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 12, fill: '#6c757d' }} tickFormatter={axisMoneyTick} />
+                    <Tooltip formatter={(value) => fmt(value)} contentStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="netSaved" name="Saved / lost" radius={[4, 4, 4, 4]} maxBarSize={28}>
+                      {monthlyBarData.map((entry, index) => (
+                        <Cell
+                          key={`net-${entry.month}-${index}`}
+                          fill={entry.netSaved >= 0 ? CHART_COL.income : CHART_COL.expense}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="empty" style={{ padding: '2rem 1rem' }}>
+                <div className="dash-chart-empty">
                   {dashChartSource === 'budget' ? 'No budget rows for these filters.' : 'Add transactions to see this chart.'}
                 </div>
               )}
@@ -777,73 +761,137 @@ const Dashboard = ({ transactions, categories, accounts, getColor, fmt, getFilte
           <div className="chart-card">
             <div className="chart-title-caps">End-of-month balance</div>
             {dashChartSource === 'budget' && (
-              <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginBottom: '6px', lineHeight: 1.35 }}>
+              <div className="dash-chart-sub">
                 End balance from <strong>Budget Overview</strong> (Excel summary totals).
               </div>
             )}
-            <div className="dash-chart-tall">
-              {chartMonths.length ? (
-                <canvas id="dashBalanceLine" role="img" aria-label="End of month balance trend" />
+            <div className="dash-chart-tall" role="img" aria-label="End of month balance trend">
+              {hasTrend ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyBarData} margin={{ top: 8, right: 10, left: 4, bottom: 4 }}>
+                    <defs>
+                      <linearGradient id={balanceFillId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART_COL.balance} stopOpacity={0.32} />
+                        <stop offset="100%" stopColor={CHART_COL.balance} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#6c757d' }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 12, fill: '#6c757d' }} tickFormatter={axisMoneyTick} />
+                    <Tooltip formatter={(value) => fmt(value)} contentStyle={{ fontSize: 12 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="endBalance"
+                      name="End balance"
+                      stroke={CHART_COL.balance}
+                      strokeWidth={2.5}
+                      fill={`url(#${balanceFillId})`}
+                      dot={{ r: 4, fill: '#fff', stroke: CHART_COL.balance, strokeWidth: 2 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="empty" style={{ padding: '2rem 1rem' }}>
+                <div className="dash-chart-empty">
                   {dashChartSource === 'budget' ? 'No budget rows for these filters.' : 'Add transactions to see this chart.'}
                 </div>
               )}
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="dash-lower-trio">
-        <div className="chart-card">
-          <div className="chart-title-caps">Income vs expenses (period)</div>
-          <div className="dash-chart-tall">
-            {totE + totI > 0 ? (
-              <canvas id="dashIncomeExpensePie" role="img" aria-label="Pie chart of income and expenses for filtered period" />
-            ) : (
-              <div className="empty" style={{ padding: '2rem 1rem' }}>No income or expenses for the current filters.</div>
-            )}
+        <div className="dash-lower-trio">
+          <div className="chart-card">
+            <div className="chart-title-caps">Income vs expenses (period)</div>
+            <div className="dash-chart-tall" role="img" aria-label="Pie chart of income and expenses for filtered period">
+              {hasPeriodPie ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={piePeriodData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="48%"
+                      outerRadius={88}
+                      paddingAngle={1}
+                    >
+                      {piePeriodData.map((entry, index) => (
+                        <Cell key={`pie-${entry.name}-${index}`} fill={entry.fill} stroke="#fff" strokeWidth={2} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => fmt(value)} />
+                    <Legend
+                      verticalAlign="bottom"
+                      align="center"
+                      wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
+                      iconType="circle"
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="dash-chart-empty">No income or expenses for the current filters.</div>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="chart-card">
-          <div className="chart-title-caps">Expenses by category</div>
-          <div className="legend-row">
-            {labels.slice(0, 8).map((l) => (
-              <span key={l} className="legend-item">
-                <span className="ldot" style={{ background: getColor(l) }}></span>
-                {l}
-              </span>
-            ))}
+          <div className="chart-card">
+            <div className="chart-title-caps">Expenses by category</div>
+            <div className="legend-row" style={{ marginBottom: 4 }}>
+              {labels.slice(0, 8).map((l) => (
+                <span key={l} className="legend-item">
+                  <span className="ldot" style={{ background: getColor(l) }} />
+                  {l}
+                </span>
+              ))}
+            </div>
+            <div className="dash-chart-tall" role="img" aria-label="Donut chart of expenses by category">
+              {hasDonut && donutChartData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={donutChartData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="42%"
+                      cy="50%"
+                      innerRadius={52}
+                      outerRadius={72}
+                      paddingAngle={1}
+                    >
+                      {donutChartData.map((entry, index) => (
+                        <Cell key={`donut-${entry.name}-${index}`} fill={entry.fill} stroke="#fff" strokeWidth={2} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => fmt(value)} />
+                    <Legend layout="vertical" align="right" verticalAlign="middle" wrapperStyle={{ fontSize: 11, paddingLeft: 8 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="dash-chart-empty">No expense data for the current filters.</div>
+              )}
+            </div>
           </div>
-          <div className="dash-chart-tall">
-            {labels.length ? (
-              <canvas id="catChart" role="img" aria-label="Donut chart of expenses by category" />
-            ) : (
-              <div className="empty" style={{ padding: '2rem 1rem' }}>No expense data for the current filters.</div>
-            )}
-          </div>
-        </div>
-        <div className="chart-card">
-          <div className="chart-title-caps">Top spending categories</div>
-          <div className="dash-top-cats-body">
-            {cats.slice(0, 7).map(([cat, amt]) => {
-              const totForPct = cats.reduce((s, c) => s + c[1], 0);
-              const pct = totForPct > 0 ? Math.round(amt / totForPct * 100) : 0;
-              const col = getColor(cat);
-              return (
-                <div key={cat} className="cat-row">
-                  <span className="cat-name">{cat}</span>
-                  <div style={{ flex: 2 }}>
-                    <div className="pbar-wrap">
-                      <div className="pbar" style={{ width: `${pct}%`, background: col }}></div>
-                    </div>
-                  </div>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', minWidth: '28px', textAlign: 'right' }}>{pct}%</span>
-                  <span style={{ fontSize: '13px', fontWeight: '500', minWidth: '70px', textAlign: 'right' }}>{fmt(amt)}</span>
-                </div>
-              );
-            })}
-            {cats.length === 0 && <div className="empty">No data</div>}
+          <div className="chart-card">
+            <div className="chart-title-caps">Top spending categories</div>
+            <div className="dash-chart-tall" role="img" aria-label="Bar chart of top expense categories">
+              {hasBar ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={barRows} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" vertical={false} horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 12, fill: '#6c757d' }} tickFormatter={axisMoneyTick} />
+                    <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 12, fill: '#495057' }} />
+                    <Tooltip formatter={(value) => fmt(value)} contentStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="amount" name="Amount" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                      {barRows.map((entry, index) => (
+                        <Cell key={`bar-${entry.name}-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="dash-chart-empty">No data</div>
+              )}
+            </div>
           </div>
         </div>
       </div>

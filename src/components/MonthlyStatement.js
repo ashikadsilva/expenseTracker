@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getAccountBadgeStyle } from '../utils/accounts';
-import { buildCategoryRowsFromTransactions } from '../utils/statementCategoriesFromTransactions';
+import { budgetMonthYearToIsoKey } from '../utils/monthKeys';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transactions = [] }) => {
+const EXP_BAR_FALLBACK = '#185FA5';
+const INC_BAR_FALLBACK = '#3B6D11';
+
+const MonthlyStatement = ({ budgetData, accounts, getColor, viewMode, setViewMode }) => {
   const [stmtMonth, setStmtMonth] = useState('all');
   const [stmtAccount, setStmtAccount] = useState('all');
 
@@ -23,8 +26,20 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
     });
     return keys;
   }, [budgetData]);
-  const CAT_COLORS = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C'];
 
+  const formatMonthOptionLabel = (key) => {
+    const last = key.lastIndexOf(' ');
+    if (last <= 0) return key;
+    const mPart = key.slice(0, last).trim();
+    const yPart = key.slice(last + 1).trim();
+    const iso = budgetMonthYearToIsoKey(mPart, yPart);
+    if (iso) {
+      const [y, mo] = iso.split('-');
+      const d = new Date(parseInt(y, 10), parseInt(mo, 10) - 1, 1);
+      return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+    }
+    return key;
+  };
   const fmt = (n) => {
     if (n === null || n === undefined) return '₹';
     return '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
@@ -35,8 +50,6 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
     const sign = n >= 0 ? '+' : '-';
     return sign + '₹' + Math.abs(Math.round(n)).toLocaleString('en-IN');
   };
-
-  const pct = (n) => (n * 100).toFixed(1) + '%';
 
   const getFilteredBudgetData = () => {
     if (!budgetData || budgetData.length === 0) return [];
@@ -57,6 +70,7 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
             combinedIncome: 0,
             combinedExpenses: 0,
             combinedNetSavings: 0,
+            combinedSavedThisMonth: 0,
             combinedIssues: [],
             combinedCategories: { expense: {}, income: {} }
           };
@@ -69,6 +83,8 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
         monthData.combinedIncome += item.total_income_actual || 0;
         monthData.combinedExpenses += item.total_expenses_actual || 0;
         monthData.combinedNetSavings += (item.net_savings || 0);
+        monthData.combinedSavedThisMonth =
+          (monthData.combinedSavedThisMonth || 0) + (Number(item.saved_this_month) || 0);
         
         // Combine issues from all sheets
         if (item.issues && item.issues.length > 0) {
@@ -112,16 +128,27 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
         diff: Number(data?.diff) || 0,
       }));
 
+    const expList =
+      item.expense_categories ||
+      item.expenseCategories ||
+      (Array.isArray(item.expense_category_rows) ? item.expense_category_rows : null) ||
+      [];
+    const incList =
+      item.income_categories ||
+      item.incomeCategories ||
+      (Array.isArray(item.income_category_rows) ? item.income_category_rows : null) ||
+      [];
+
     const fromSheetRaw =
       kind === 'expense'
         ? isCombined
           ? mapCombined('expense')
-          : item.expense_categories || []
+          : expList
         : isCombined
           ? mapCombined('income')
-          : item.income_categories || [];
+          : incList;
 
-    const fromSheet = fromSheetRaw.map((c) => {
+    return fromSheetRaw.map((c) => {
       const planned = Number(c.planned) || 0;
       const actual = Number(c.actual) || 0;
       const diffRaw = c.diff;
@@ -131,34 +158,25 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
           : actual - planned;
       return { category: c.category, planned, actual, diff };
     });
-
-    if (fromSheet.some((c) => Number(c.actual) > 0)) return fromSheet;
-
-    const total =
-      kind === 'expense'
-        ? isCombined
-          ? Number(item.combinedExpenses) || 0
-          : Number(item.total_expenses_actual) || 0
-        : isCombined
-          ? Number(item.combinedIncome) || 0
-          : Number(item.total_income_actual) || 0;
-
-    if (total <= 0 || !transactions.length) return fromSheet;
-
-    const type = kind === 'expense' ? 'expense' : 'income';
-    const acct = isCombined ? null : item.account;
-    return buildCategoryRowsFromTransactions(transactions, item.month, item.year, acct, type);
   };
 
-  const INCOME_DOT = ['#3B6D11', '#185FA5', '#534AB7', '#0F6E56', '#BA7517'];
+  const barColorForCategory = (categoryName, kind) => {
+    if (typeof getColor === 'function') {
+      try {
+        const c = getColor(categoryName);
+        if (c && typeof c === 'string' && /^#/.test(c)) return c;
+      } catch {
+        /* ignore */
+      }
+    }
+    return kind === 'expense' ? EXP_BAR_FALLBACK : INC_BAR_FALLBACK;
+  };
 
   const renderStatementCard = (item, isCombined = false) => {
     const startBalance = isCombined ? item.combinedStartBalance : (item.start_balance || 0);
     const endBalance = isCombined ? item.combinedEndBalance : (item.end_balance || 0);
     const totalIncome = isCombined ? item.combinedIncome : (item.total_income_actual || 0);
     const totalExpenses = isCombined ? item.combinedExpenses : (item.total_expenses_actual || 0);
-    const difference = endBalance - startBalance;
-
     const netSavings = isCombined ? item.combinedNetSavings : (item.net_savings || 0);
     const calculatedEndBalance = startBalance + netSavings;
     const balanceVariance = endBalance - calculatedEndBalance;
@@ -172,13 +190,22 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
     const combinedPositive = flow >= 0;
     const indFlow = item.saved_this_month ?? flow;
     const indPositive = indFlow >= 0;
+    const rawSavingsLabel = String(item.savings_label || '').trim();
+    const savingsPillTextIndividual =
+      rawSavingsLabel && (/₹|Rs\.?|INR/i.test(rawSavingsLabel) || rawSavingsLabel.length > 55)
+        ? rawSavingsLabel
+        : `${rawSavingsLabel || (indPositive ? 'Increase in total savings' : 'Decrease in total savings')}: ${fmtSigned(indFlow)}`;
+    const combinedSaved = isCombined ? Number(item.combinedSavedThisMonth) || 0 : 0;
+    const combinedSavedPositive = combinedSaved >= 0;
     const savingsPill = isCombined ? (
-      <span className={`stmt-savings-pill ${combinedPositive ? 'stmt-savings-pill--up' : 'stmt-savings-pill--down'}`}>
-        {combinedPositive ? 'Increase in total savings' : 'Decrease in total savings'}: {fmtSigned(flow)}
+      <span
+        className={`stmt-savings-pill ${combinedSavedPositive ? 'stmt-savings-pill--up' : 'stmt-savings-pill--down'}`}
+      >
+        {combinedSavedPositive ? 'Increase in total savings' : 'Decrease in total savings'}: {fmtSigned(combinedSaved)}
       </span>
     ) : (
       <span className={`stmt-savings-pill ${indPositive ? 'stmt-savings-pill--up' : 'stmt-savings-pill--down'}`}>
-        {item.savings_label || (indPositive ? 'Increase in total savings' : 'Decrease in total savings')}: {fmtSigned(indFlow)}
+        {savingsPillTextIndividual}
       </span>
     );
 
@@ -189,33 +216,25 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
       const max = Math.max(...filtered.map((c) => Number(c.actual)), 1);
       if (!filtered.length) {
         return (
-          <div className="empty" style={{ padding: '1rem', fontSize: '12px' }}>
-            {kind === 'expense' ? 'No expense data' : 'No income data'}
+          <div className="empty stmt-cat-empty">
+            {kind === 'expense' ? 'No expense categories for this period.' : 'No income categories for this period.'}
           </div>
         );
       }
-      return filtered.map((cat, i) => {
+      return filtered.map((cat) => {
         const w = (Number(cat.actual) / max) * 100;
-        const dot =
-          kind === 'expense'
-            ? CAT_COLORS[i % CAT_COLORS.length]
-            : INCOME_DOT[i % INCOME_DOT.length];
+        const barColor = barColorForCategory(cat.category, kind);
         return (
-          <div key={cat.category} className="stmt-cat-row">
-            <span className="stmt-cat-name" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dot, flexShrink: 0 }} />
+          <div key={cat.category} className="stmt-cat-row stmt-cat-row--ref">
+            <span className="stmt-cat-name" title={cat.category}>
               {cat.category}
             </span>
             <div className="stmt-bar-track">
-              <div className="stmt-bar-fill" style={{ width: `${w}%`, background: dot }} />
+              <div className="stmt-bar-fill" style={{ width: `${w}%`, background: barColor }} />
             </div>
             <div className="stmt-cat-amt-wrap">
               <div className={`stmt-cat-amt ${kind === 'expense' ? 'stmt-cat-amt--exp' : 'stmt-cat-amt--inc'}`}>
                 {fmt(cat.actual)}
-              </div>
-              <div className="stmt-cat-meta">
-                Plan {fmt(cat.planned)} · Diff {fmtSigned(cat.diff)}
-                {Number(cat.planned) ? ` · ${cat.diff >= 0 ? '+' : ''}${Math.abs(cat.diff / cat.planned * 100).toFixed(1)}% of plan` : ''}
               </div>
             </div>
           </div>
@@ -223,21 +242,26 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
       });
     };
 
+    const endUp = endBalance >= startBalance;
+
     return (
-      <div key={isCombined ? `${item.month}-${item.year}` : item.sheet} className="stmt-card">
+      <div
+        key={isCombined ? `${item.month}-${item.year}` : item.sheet}
+        className="stmt-card"
+        title={!isCombined ? item.sheet : undefined}
+      >
         <div className="stmt-head">
-          <div className="stmt-head-left">
-            <span className="stmt-month-label">
-              {isCombined ? `${item.month} ${item.year}` : `${item.month} ${item.year}`}
-            </span>
+          <div className="stmt-head-left stmt-head-left--ref">
+            <span className="stmt-month-label">{`${item.month} ${item.year}`}</span>
             {!isCombined && (
               <span
+                className="stmt-acct-badge"
                 style={{
-                  padding: '3px 10px',
+                  padding: '4px 12px',
                   borderRadius: '999px',
                   fontSize: '11px',
                   fontWeight: '600',
-                  ...getAccountBadgeStyle(item.account, accounts)
+                  ...getAccountBadgeStyle(item.account, accounts),
                 }}
               >
                 {item.account}
@@ -245,16 +269,17 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
             )}
             {isCombined && (
               <span
+                className="stmt-acct-badge"
                 style={{
-                  padding: '3px 10px',
+                  padding: '4px 12px',
                   borderRadius: '999px',
                   fontSize: '11px',
                   fontWeight: '600',
                   background: '#E8F1FB',
-                  color: '#185FA5'
+                  color: '#185FA5',
                 }}
               >
-                Combined
+                Combined by month
               </span>
             )}
           </div>
@@ -268,7 +293,9 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
           </div>
           <div className="stmt-metric">
             <div className="stmt-metric-label">End balance</div>
-            <div className="stmt-metric-val stmt-metric-val--green">{fmt(endBalance)}</div>
+            <div className={`stmt-metric-val ${endUp ? 'stmt-metric-val--green' : 'stmt-metric-val--red'}`}>
+              {fmt(endBalance)}
+            </div>
           </div>
           <div className="stmt-metric">
             <div className="stmt-metric-label">Total spent</div>
@@ -278,23 +305,6 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
             <div className="stmt-metric-label">Total income</div>
             <div className="stmt-metric-val stmt-metric-val--green">{fmt(totalIncome)}</div>
           </div>
-        </div>
-
-        <div className="stmt-metric-secondary">
-          <div className="stmt-metric" style={{ background: 'var(--color-background-secondary)' }}>
-            <div className="stmt-metric-label">Balance change (end − start)</div>
-            <div className={`stmt-metric-val ${difference >= 0 ? 'stmt-metric-val--green' : 'stmt-metric-val--red'}`}>
-              {fmtSigned(difference)}
-            </div>
-          </div>
-          {!isCombined && item.savings_pct !== undefined && (
-            <div className="stmt-metric" style={{ background: 'var(--color-background-secondary)' }}>
-              <div className="stmt-metric-label">Savings %</div>
-              <div className={`stmt-metric-val ${item.saved_this_month >= 0 ? 'stmt-metric-val--green' : 'stmt-metric-val--red'}`}>
-                {pct(item.savings_pct)}
-              </div>
-            </div>
-          )}
         </div>
 
         {issues && issues.length > 0 && (
@@ -319,7 +329,7 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
             </div>
             <div style={{ fontSize: '11px', color: '#2c5282' }}>
               <div style={{ marginBottom: '4px' }}>
-                <strong>Starting balance:</strong> {fmt(startBalance)}
+                <strong>Start balance:</strong> {fmt(startBalance)}
               </div>
               <div style={{ marginBottom: '4px' }}>
                 <strong>Net savings:</strong> {fmt(netSavings)}
@@ -430,7 +440,9 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
           >
             <option value="all">All months</option>
             {monthOptions.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {formatMonthOptionLabel(m)}
+              </option>
             ))}
           </select>
           <select
@@ -480,10 +492,8 @@ const MonthlyStatement = ({ budgetData, accounts, viewMode, setViewMode, transac
             <div style={{ fontWeight: '500', color: 'var(--color-text-primary)', marginBottom: '6px' }}>
               Choose what to view
             </div>
-            Select a <strong>month</strong> and/or <strong>account</strong> above to load statement details.
-            {viewMode === 'combined' && (
-              <span> Combined view rolls up both banks by month, so only the month filter applies.</span>
-            )}
+            Pick a <strong>month</strong> (e.g. Aug 2025) to see one card per bank, or narrow by <strong>account</strong> in
+            Per sheet view. Combined by month merges all accounts for that month into a single card.
           </div>
         </div>
       ) : displayStatementData.length > 0 ? (

@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
-    "chart.js": "^4.4.1",
     "driver.js": "^1.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
+    "recharts": "^2.15.0",
     "xlsx": "^0.18.5"
   },
   "browserslist": {

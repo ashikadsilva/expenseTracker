@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ImportTab = ({ triggerUpload, importResult, accountsSummary = '' }) => {
+const ImportTab = ({ triggerUpload, importResult, accountsSummary = '', onClearSummaryForReimport }) => {
   return (
     <div className="section">
       <div className="upload-zone" onClick={triggerUpload}>
@@ -12,7 +12,7 @@ const ImportTab = ({ triggerUpload, importResult, accountsSummary = '' }) => {
             ? ` Account names are detected using your keywords (${accountsSummary}).`
             : ' Configure accounts under Manage accounts.'}
         </div>
-        <div style={{ marginTop: '.875rem' }}>
+        <div style={{ marginTop: '.875rem', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
           <button 
             className="btn btn-primary" 
             onClick={(e) => { 
@@ -22,6 +22,19 @@ const ImportTab = ({ triggerUpload, importResult, accountsSummary = '' }) => {
           >
             Choose file
           </button>
+          {typeof onClearSummaryForReimport === 'function' && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClearSummaryForReimport();
+                triggerUpload();
+              }}
+            >
+              Clear & re-import summary
+            </button>
+          )}
         </div>
       </div>
       
@@ -49,7 +62,7 @@ const ImportTab = ({ triggerUpload, importResult, accountsSummary = '' }) => {
           How import works
         </div>
         <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', lineHeight: '1.7' }}>
-          Sheets named with "Transactions" are read. Expenses are in columns B\u2013E (Date, Amount, Description, Category). Income is in columns F\u2013I. The account is guessed from each sheet name using the import keywords you set per account. Duplicate dates+amounts are skipped automatically.
+          Sheet names must include <strong>Transaction</strong> (case-insensitive; e.g. Canara Transactions) for line items to import. Expenses are in columns B\u2013E (Date, Amount, Description, Category). Income is in columns F\u2013I. The account is guessed from each sheet name using the keywords you set under Manage accounts. Summary sheets still fill Budget Overview without transaction sheets.
         </div>
       </div>
     </div>

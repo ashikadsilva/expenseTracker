@@ -18,13 +18,16 @@ import {
   DEFAULT_CATEGORIES,
   isCloudPersistenceEnabled,
   getSupabaseClient,
+  LS_ET_TRANSACTIONS,
+  LS_ET_SUMMARY,
+  readStoredAccounts,
 } from './utils/persistence';
+import { budgetMonthYearToIsoKey } from './utils/monthKeys';
 import { useWalkthrough } from './hooks/useWalkthrough';
 import {
   normalizeAccounts,
   matchAccountFromSheetName,
   stripAccountNoiseFromSheetName,
-  defaultAccountId,
 } from './utils/accounts';
 
 const PALETTE = ['#185FA5','#3B6D11','#BA7517','#534AB7','#0F6E56','#993556','#A32D2D','#D85A30','#D4537E','#639922','#888780','#E24B4A','#3266ad','#73726c','#1D9E75','#EF9F27','#97C459','#0C447C','#633806'];
@@ -82,6 +85,11 @@ function extractMonthYearFromSheetName(sheetName, accounts) {
     if (['jan', 'feb', 'mar', 'january', 'february', 'march'].includes(m) && !lower.includes('2025')) year = '2026';
   }
   return { month, year };
+}
+
+/** Transaction rows: account id for filters — Canara vs Union from sheet title. */
+function txnAccountIdFromSheetName(sheetName) {
+  return String(sheetName).toLowerCase().includes('canara') ? 'Canara' : 'Union';
 }
 
 function App() {
@@ -192,6 +200,30 @@ function App() {
     accountsRef.current = accounts;
   }, [accounts]);
 
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (!e.newValue) return;
+      try {
+        if (e.key === LS_ET_TRANSACTIONS) {
+          const arr = JSON.parse(e.newValue);
+          if (Array.isArray(arr)) setTransactions(arr);
+        }
+        if (e.key === LS_ET_SUMMARY) {
+          const arr = JSON.parse(e.newValue);
+          if (Array.isArray(arr)) setBudgetData(arr);
+        }
+        if (e.key === LS_ET_ACCOUNTS || e.key === 'expenseTrackerAccounts') {
+          const raw = readStoredAccounts();
+          if (raw) setAccounts(normalizeAccounts(raw));
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const openAccountModal = (acct) => {
     setEditAccount(acct || null);
     setShowAccountModal(true);
@@ -203,8 +235,13 @@ function App() {
   };
 
   const saveAccountRow = (payload) => {
-    const { prevId, id, label, keywords, chipColor } = payload;
-    const row = { id, label, keywords, chipColor };
+    const { prevId, id, label, keywords, chipColor, startingBalance, currentBalance } = payload;
+    const startB = Number(startingBalance) || 0;
+    const curB =
+      currentBalance !== undefined && currentBalance !== '' && currentBalance !== null
+        ? Number(currentBalance) || 0
+        : startB;
+    const row = { id, label, keywords, chipColor, startingBalance: startB, currentBalance: curB };
     setAccounts((prev) => {
       if (prevId) {
         return prev.map((a) => (a.id === prevId ? row : a));
@@ -216,6 +253,31 @@ function App() {
       return [...prev, row];
     });
     closeAccountModal();
+  };
+
+  const txnBalanceDelta = (type, amount) =>
+    (type === 'income' ? 1 : -1) * (Number(amount) || 0);
+
+  const adjustAccountCurrentBalance = (accountId, delta) => {
+    if (!accountId || !delta) return;
+    setAccounts((prev) =>
+      prev.map((a) =>
+        a.id === accountId
+          ? { ...a, currentBalance: (Number(a.currentBalance) || 0) + delta }
+          : a
+      )
+    );
+  };
+
+  const clearSummaryForReimport = () => {
+    if (!window.confirm('Clear all summary data from this browser? You will need to upload your Excel file again to restore Monthly Statement and budget overview.')) return;
+    try {
+      localStorage.removeItem(LS_ET_SUMMARY);
+      localStorage.removeItem('expenseTrackerBudgetData');
+    } catch {
+      /* ignore */
+    }
+    setBudgetData([]);
   };
 
   const deleteAccountRow = (id) => {
@@ -408,6 +470,7 @@ function App() {
     };
     
     setTransactions(prev => [...prev, newTransaction]);
+    adjustAccountCurrentBalance(account, txnBalanceDelta(type, amount));
   };
 
   const getPreviousMonthBalance = (month, year, account) => {
@@ -470,20 +533,31 @@ function App() {
 
   const saveTxn = (txnData) => {
     if (editTxnId) {
-      setTransactions(prev => prev.map(t => 
-        t.id === editTxnId ? { ...t, ...txnData, type: currentTxnType } : t
-      ));
+      const old = transactions.find((t) => t.id === editTxnId);
+      setTransactions((prev) =>
+        prev.map((t) => (t.id === editTxnId ? { ...t, ...txnData, type: currentTxnType } : t))
+      );
+      if (old) {
+        adjustAccountCurrentBalance(old.account, -txnBalanceDelta(old.type, old.amount));
+        const next = { ...old, ...txnData, type: currentTxnType };
+        adjustAccountCurrentBalance(next.account, txnBalanceDelta(next.type, next.amount));
+      }
     } else {
-      const newId = Math.max(...transactions.map(t => t.id), 0) + 1;
-      setTransactions(prev => [...prev, { ...txnData, id: newId, type: currentTxnType }]);
+      setTransactions((prev) => {
+        const newId = Math.max(...prev.map((t) => Number(t.id) || 0), 0) + 1;
+        const row = { ...txnData, id: newId, type: currentTxnType };
+        adjustAccountCurrentBalance(row.account, txnBalanceDelta(row.type, row.amount));
+        return [...prev, row];
+      });
     }
     closeTxnModal();
   };
 
   const deleteTxn = (id) => {
-    if (window.confirm('Delete this transaction?')) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
-    }
+    if (!window.confirm('Delete this transaction?')) return;
+    const tx = transactions.find((t) => t.id === id);
+    if (tx) adjustAccountCurrentBalance(tx.account, -txnBalanceDelta(tx.type, tx.amount));
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
   const saveCat = (catData) => {
@@ -564,8 +638,8 @@ function App() {
         try {
           const acctList = accountsRef.current;
           const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-          let imported = 0, skipped = 0;
-          const existingKeys = new Set(transactions.map(t => `${t.date}_${t.amount}_${t.account}_${t.type}`));
+          let imported = 0;
+          let skipped = 0;
           
           console.log('Workbook sheets found:', wb.SheetNames);
 
@@ -589,89 +663,72 @@ function App() {
             return null;
           };
 
+          /** Rows 0–3 are headers; from row index 4+. Expense cols 1–4; income cols 6–9 (date, amount, desc, category). */
           const parseTransactionSheet = (ws, sheetName) => {
             const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-            const transactions = [];
-            const account = matchAccountFromSheetName(sheetName, acctList);
+            const out = [];
+            const account = txnAccountIdFromSheetName(sheetName);
             for (let r = 4; r < rows.length; r++) {
               const row = rows[r];
               if (!row) continue;
-              const dateE = row[0];
-              const amtE = row[1];
-              const descE = row[2];
-              const catE = row[3];
+              const dateE = row[1];
+              const amtE = row[2];
+              const descE = row[3];
+              const catE = row[4];
               if (dateE != null && amtE != null && !Number.isNaN(parseFloat(amtE))) {
                 const dateStr = parseExcelDate(dateE);
                 const abs = Math.round(Math.abs(parseFloat(amtE)) * 100) / 100;
                 if (dateStr && abs > 0) {
                   const cat = String(catE || 'Other').trim() || 'Other';
                   const desc = String(descE || '').trim();
-                  transactions.push({ date: dateStr, amount: abs, desc, cat, account, type: 'expense' });
+                  out.push({ date: dateStr, amount: abs, desc, cat, account, type: 'expense' });
                 }
               }
-              const dateI = row[5];
-              const amtI = row[6];
-              const descI = row[7];
-              const catI = row[8];
+              const dateI = row[6];
+              const amtI = row[7];
+              const descI = row[8];
+              const catI = row[9];
               if (dateI != null && amtI != null && !Number.isNaN(parseFloat(amtI))) {
                 const dateStr = parseExcelDate(dateI);
                 const abs = Math.round(Math.abs(parseFloat(amtI)) * 100) / 100;
                 if (dateStr && abs > 0) {
                   const cat = String(catI || 'Other').trim() || 'Other';
                   const desc = String(descI || '').trim();
-                  transactions.push({ date: dateStr, amount: abs, desc, cat, account, type: 'income' });
+                  out.push({ date: dateStr, amount: abs, desc, cat, account, type: 'income' });
                 }
               }
             }
-            return transactions;
+            return out;
           };
           
-          // Budget-specific Excel Data Analysis using exact cell positions
+          // Summary sheets: exact cell indices (0-based) per Monthly_budget.xlsx template
           const analyzeExcelData = (wb) => {
             const budgetData = [];
-            
-            wb.SheetNames.forEach(sheetName => {
+
+            wb.SheetNames.forEach((sheetName) => {
               const sheetNameLower = sheetName.toLowerCase();
-              
-              // Only process summary sheets (not transaction sheets)
-              if (!sheetNameLower.includes('summary') && !sheetNameLower.includes('account')) {
-                return;
-              }
-              
-              // Try multiple methods to access worksheet
-              let ws = wb.Sheets[sheetName];
-              if (!ws) {
-                console.warn(`Worksheet ${sheetName} not found in workbook`);
-                console.log('Available sheets:', Object.keys(wb.Sheets));
-                console.log('Workbook structure:', wb);
-                return;
-              }
-              
-              // Additional debugging
-              console.log(`Worksheet ${sheetName} type:`, typeof ws);
-              console.log(`Worksheet ${sheetName} keys:`, ws ? Object.keys(ws) : 'undefined');
-              const range = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: 'A1', e: { r: 0, c: 0 } };
+              if (!sheetNameLower.includes('summary')) return;
+
+              const ws = wb.Sheets[sheetName];
+              if (!ws) return;
+
+              const range = ws['!ref']
+                ? XLSX.utils.decode_range(ws['!ref'])
+                : { s: { r: 0, c: 0 }, e: { r: 120, c: 20 } };
               const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-              
-              // Get cell values using exact positions with robust error handling and numeric parsing
+
               const getCell = (row, col) => {
                 try {
-                  const cellAddress = XLSX.utils.encode_cell({r: row, c: col});
+                  const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
                   const cell = ws[cellAddress];
                   if (!cell) return null;
-                  
-                  // Extract numeric value properly
                   let value = cell.v;
-                  if (cell.w && !value) {
-                    // Try to parse formatted string value
+                  if (cell.w && (value === null || value === undefined || value === '')) {
                     const cleanValue = String(cell.w).replace(/[^\d.-]/g, '');
                     value = parseFloat(cleanValue) || 0;
                   }
-                  
-                  // Ensure we return a number
-                  return typeof value === 'number' ? value : (parseFloat(value) || 0);
-                } catch (error) {
-                  console.warn(`Error reading cell ${row},${col}:`, error);
+                  return typeof value === 'number' ? value : parseFloat(value) || 0;
+                } catch {
                   return null;
                 }
               };
@@ -685,125 +742,70 @@ function App() {
                   return '';
                 }
               };
-              
+
               const account = matchAccountFromSheetName(sheetName, acctList);
-
               const { month, year } = extractMonthYearFromSheetName(sheetName, acctList);
-              
-              // Extract values using exact positions with fallback methods and debugging
-              console.log(`Processing sheet: ${sheetName}`);
-              console.log('Worksheet keys:', Object.keys(ws));
-              
-              // Monthly budget.xlsx: L8 / D17 = start; older templates: K/L area
-              let startingBalance =
-                getCell(7, 11) ||
-                getCell(16, 3) ||
-                getCell(6, 9) ||
-                getCell(6, 10) ||
-                getCell(7, 9) ||
-                0;
-              
-              // Ensure starting balance is a number
-              if (typeof startingBalance === 'string' && startingBalance.includes('Starting balance:')) {
-                // Extract numeric value from string like "Starting balance: 5000"
-                const numericMatch = startingBalance.match(/[\d,.-]+/);
-                startingBalance = numericMatch ? parseFloat(numericMatch[0]) : 0;
-              } else if (typeof startingBalance !== 'number') {
-                startingBalance = parseFloat(startingBalance) || 0;
-              }
-              
-              console.log(`Starting balance found: ${startingBalance}`);
-              
-              let endBalance =
-                getCell(16, 4) ||
-                getCell(15, 3) ||
-                getCell(15, 4) ||
-                0;
-              
-              // Ensure ending balance is a number
-              if (typeof endBalance === 'string' && endBalance.includes('START BALANCE')) {
-                // Extract numeric value from string like "START BALANCE 5000"
-                const numericMatch = endBalance.match(/[\d,.-]+/);
-                endBalance = numericMatch ? parseFloat(numericMatch[0]) : 0;
-              } else if (typeof endBalance !== 'number') {
-                endBalance = parseFloat(endBalance) || 0;
-              }
-              
-              const savingsLabel =
-                readText(13, 8) ||
-                readText(12, 8) ||
-                'No change';
 
-              const savingsPct =
-                getCell(12, 8) ||
-                getCell(11, 8) ||
-                getCell(11, 9) ||
-                0;
+              const startingBalance = Number(getCell(7, 11)) || 0;
+              const startBalance = Number(getCell(16, 3)) || 0;
+              const endBalance = Number(getCell(16, 4)) || 0;
+              const savingsLabel = readText(13, 8) || 'No change';
+              const savingsPct = Number(getCell(12, 8)) || 0;
+              const savedThisMonth = Number(getCell(14, 8)) || 0;
 
-              const savedThisMonth =
-                getCell(14, 8) ||
-                getCell(13, 8) ||
-                getCell(13, 9) ||
-                0;
-              
-              // Calculate totals from rows 27+
-              let totalExpensesActual = 0;
-              let totalIncomeActual = 0;
+              const totalExpensesPlanned = Number(getCell(20, 2)) || 0;
+              let totalExpensesActual = Number(getCell(21, 2)) || 0;
+              const totalIncomePlanned = Number(getCell(20, 8)) || 0;
+              let totalIncomeActual = Number(getCell(21, 8)) || 0;
+
               const expenseCategories = [];
               const incomeCategories = [];
-              
-              // Monthly budget.xlsx: row 26 = Totals; categories from row 28 (index 27+). Cols A,D / G,J.
-              for (let i = 27; i <= range.e.r; i++) {
+
+              const lastCatRow = Math.min(49, range.e.r);
+              for (let i = 26; i <= lastCatRow; i++) {
                 const row = rows[i];
                 if (!row) continue;
-                const expCat = row[0];
-                const expPlanned = parseFloat(row[2]);
-                const expActual = parseFloat(row[3]);
-                const expDiff = parseFloat(row[4]);
-                if (
-                  typeof expCat === 'string' &&
-                  expCat.trim() &&
-                  expCat.trim().toLowerCase() !== 'totals' &&
-                  !Number.isNaN(expActual) &&
-                  expActual > 0
-                ) {
-                  const planned = Number.isNaN(expPlanned) ? 0 : expPlanned;
-                  const diff = Number.isNaN(expDiff) ? 0 : expDiff;
+                const expCat = row[1];
+                const expPlanned = parseFloat(row[3]);
+                const expActual = parseFloat(row[4]);
+                const expDiff = parseFloat(row[5]);
+                if (typeof expCat === 'string' && expCat.trim() && expCat.trim().toLowerCase() !== 'totals') {
+                  const planned = Number.isFinite(expPlanned) ? expPlanned : 0;
+                  const actual = Number.isFinite(expActual) ? expActual : 0;
+                  const diff = Number.isFinite(expDiff) ? expDiff : actual - planned;
                   expenseCategories.push({
                     category: expCat.trim(),
                     planned,
-                    actual: expActual,
-                    diff
+                    actual,
+                    diff,
                   });
-                  totalExpensesActual += expActual;
                 }
-                const incCat = row[6];
-                const incPlanned = parseFloat(row[7]);
-                const incActual = parseFloat(row[9]);
-                const incDiff = parseFloat(row[10]);
-                if (typeof incCat === 'string' && incCat.trim() && !Number.isNaN(incActual) && incActual > 0) {
-                  const planned = Number.isNaN(incPlanned) ? 0 : incPlanned;
-                  const diff = Number.isNaN(incDiff) ? incActual - planned : incDiff;
+                const incCat = row[7];
+                const incPlanned = parseFloat(row[9]);
+                const incActual = parseFloat(row[10]);
+                const incDiff = parseFloat(row[11]);
+                if (typeof incCat === 'string' && incCat.trim()) {
+                  const planned = Number.isFinite(incPlanned) ? incPlanned : 0;
+                  const actual = Number.isFinite(incActual) ? incActual : 0;
+                  const diff = Number.isFinite(incDiff) ? incDiff : actual - planned;
                   incomeCategories.push({
                     category: incCat.trim(),
                     planned,
-                    actual: incActual,
-                    diff
+                    actual,
+                    diff,
                   });
-                  totalIncomeActual += incActual;
                 }
               }
 
-              if (totalExpensesActual === 0) {
-                totalExpensesActual = getCell(21, 2) || 0;
+              if (!totalExpensesActual) {
+                totalExpensesActual = expenseCategories.reduce((s, c) => s + (Number(c.actual) || 0), 0);
               }
-              if (totalIncomeActual === 0) {
-                totalIncomeActual = getCell(21, 8) || 0;
+              if (!totalIncomeActual) {
+                totalIncomeActual = incomeCategories.reduce((s, c) => s + (Number(c.actual) || 0), 0);
               }
               
-              // Advanced budget analysis and validation
               const netSavings = totalIncomeActual - totalExpensesActual;
-              const calculatedEndBalance = startingBalance + netSavings;
+              const calculatedEndBalance = startBalance + netSavings;
               const balanceVariance = endBalance - calculatedEndBalance;
               
               // Verify balance consistency
@@ -853,19 +855,20 @@ function App() {
                 });
               }
               
-              // Create comprehensive budget data item
               const budgetItem = {
                 sheet: sheetName,
                 account,
                 month,
                 year,
                 starting_balance: startingBalance,
-                start_balance: startingBalance,
+                start_balance: startBalance,
                 end_balance: endBalance,
                 saved_this_month: savedThisMonth,
                 savings_label: String(savingsLabel),
                 savings_pct: parseFloat(savingsPct) || 0,
+                total_expenses_planned: totalExpensesPlanned,
                 total_expenses_actual: totalExpensesActual,
+                total_income_planned: totalIncomePlanned,
                 total_income_actual: totalIncomeActual,
                 net_savings: netSavings,
                 calculated_end_balance: calculatedEndBalance,
@@ -877,8 +880,8 @@ function App() {
                 income_variance: incomeVariance,
                 issues: issues,
                 analysis: {
-                  starting_balance_source: startingBalance > 0 ? 'excel_extracted' : 'not_found',
-                  balance_calculation: `starting(${fmt(startingBalance)}) + net_savings(${fmt(netSavings)}) = calculated(${fmt(calculatedEndBalance)})`,
+                  starting_balance_source: startBalance > 0 ? 'excel_extracted' : 'not_found',
+                  balance_calculation: `starting(${fmt(startBalance)}) + net_savings(${fmt(netSavings)}) = calculated(${fmt(calculatedEndBalance)})`,
                   actual_vs_calculated: `actual(${fmt(endBalance)}) vs calculated(${fmt(calculatedEndBalance)}) = variance(${fmt(balanceVariance)})`,
                   totals: {
                     total_expenses: totalExpensesActual,
@@ -889,22 +892,12 @@ function App() {
                 }
               };
               
-              console.log(`Budget analysis for ${sheetName}:`, {
-                starting_balance: startingBalance,
-                end_balance: endBalance,
-                net_savings: netSavings,
-                calculated_end_balance: calculatedEndBalance,
-                balance_variance: balanceVariance,
-                is_consistent: isBalanceConsistent,
-                issues_count: issues.length
-              });
-              
               budgetData.push(budgetItem);
             });
 
             const sheets = {};
             wb.SheetNames.forEach((name) => {
-              if (!/transaction/i.test(name)) return;
+              if (!String(name).toLowerCase().includes('transaction')) return;
               const tws = wb.Sheets[name];
               if (!tws) return;
               const txs = parseTransactionSheet(tws, name);
@@ -924,92 +917,72 @@ function App() {
             return { budgetData, sheets, summary };
           };
           
-          const extractTransactionFromRow = (row, columns, sheetName) => {
-            let dateCol, amountCol, descCol, catCol, typeCol;
-            
-            // Find columns by type detection
-            columns.forEach(col => {
-              if (col.type === 'date') dateCol = col.index;
-              if (col.type === 'amount') amountCol = col.index;
-              if (col.type === 'text') {
-                const colName = String(col.name || '').toLowerCase();
-                if (colName.includes('desc') || colName.includes('remark') || colName.includes('particular')) {
-                  descCol = col.index;
-                } else if (colName.includes('cat') || colName.includes('head') || colName.includes('type')) {
-                  catCol = col.index;
-                }
-              }
-            });
-            
-            // Extract and validate data
-            const dateVal = dateCol !== undefined ? row[dateCol] : null;
-            const amountVal = amountCol !== undefined ? row[amountCol] : null;
-            const descVal = descCol !== undefined ? row[descCol] : null;
-            const catVal = catCol !== undefined ? row[catCol] : null;
-            
-            if (!dateVal || !amountVal || isNaN(parseFloat(amountVal))) return null;
-            
-            // Format date
-            let dateStr = '';
-            if (dateVal instanceof Date) {
-              const y = dateVal.getFullYear(), m = String(dateVal.getMonth() + 1).padStart(2, '0'), d = String(dateVal.getDate()).padStart(2, '0');
-              if (y < 2020 || y > 2030) return null;
-              dateStr = `${y}-${m}-${d}`;
-            } else if (typeof dateVal === 'string' && dateVal.includes('-')) {
-              dateStr = dateVal.split(' ')[0];
-            } else return null;
-            
-            const amount = Math.round(parseFloat(amountVal) * 100) / 100;
-            const type = amount < 0 ? 'expense' : 'income';
-            const absAmount = Math.abs(amount);
-            
-            const account = matchAccountFromSheetName(sheetName, acctList);
-
-            const cat = String(catVal || 'Other').trim() || 'Other';
-            const desc = String(descVal || '').trim();
-            
-            return { date: dateStr, amount: absAmount, desc, cat, account, type };
-          };
-          
-          // Analyze the Excel file
           const analysis = analyzeExcelData(wb);
-          
-          // Import transactions from all transaction sheets
-          wb.SheetNames.forEach(sheetName => {
+
+          const candidates = [];
+          wb.SheetNames.forEach((sheetName) => {
             const sheetAnalysis = analysis.sheets[sheetName];
             if (!sheetAnalysis || sheetAnalysis.type !== 'transactions') return;
-            sheetAnalysis.transactions.forEach(transaction => {
+            sheetAnalysis.transactions.forEach((t) => candidates.push(t));
+          });
+
+          setTransactions((prev) => {
+            const keys = new Set(prev.map((t) => `${t.date}_${t.amount}_${t.account}_${t.type}`));
+            let maxId = prev.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
+            const added = [];
+            for (const transaction of candidates) {
               const key = `${transaction.date}_${transaction.amount}_${transaction.account}_${transaction.type}`;
-              
-              if (existingKeys.has(key)) { 
-                skipped++; 
-                return; 
+              if (keys.has(key)) {
+                skipped += 1;
+                continue;
               }
-              existingKeys.add(key);
-              
-              const newId = Math.max(...transactions.map(t => t.id), 0) + 1;
-              setTransactions(prev => [...prev, { id: newId, ...transaction }]);
-              imported++;
-              
-              // Auto-add categories if they don't exist
-              if (!categories[transaction.type].some(c => c.name === transaction.cat)) {
-                setCategories(prev => ({
-                  ...prev,
-                  [transaction.type]: [...prev[transaction.type], { 
-                    name: transaction.cat, 
-                    color: '#888780' // Default color
-                  }]
-                }));
-              }
-            });
+              keys.add(key);
+              maxId += 1;
+              added.push({ id: maxId, ...transaction });
+            }
+            imported = added.length;
+            if (added.length) {
+              setCategories((pc) => {
+                const exp = [...pc.expense];
+                const inc = [...pc.income];
+                const he = new Set(exp.map((c) => c.name));
+                const hi = new Set(inc.map((c) => c.name));
+                for (const tr of added) {
+                  if (tr.type === 'expense' && !he.has(tr.cat)) {
+                    he.add(tr.cat);
+                    exp.push({ name: tr.cat, color: '#888780' });
+                  }
+                  if (tr.type === 'income' && !hi.has(tr.cat)) {
+                    hi.add(tr.cat);
+                    inc.push({ name: tr.cat, color: '#888780' });
+                  }
+                }
+                return { expense: exp, income: inc };
+              });
+            }
+            return [...prev, ...added];
           });
           
-          // Update balance information if found
           if (analysis.budgetData && analysis.budgetData.length > 0) {
-            // Store budget data in state
             setBudgetData(analysis.budgetData);
-            
-            console.log('Budget data imported:', analysis.budgetData);
+            if (
+              window.confirm(
+                'Update account balances from imported data? This sets each account\'s current balance to the latest end balance from the imported summary sheets.'
+              )
+            ) {
+              const best = {};
+              for (const row of analysis.budgetData) {
+                const iso = budgetMonthYearToIsoKey(row.month, row.year);
+                const acc = String(row.account || '');
+                if (!acc || !iso) continue;
+                if (!best[acc] || iso.localeCompare(best[acc].iso) >= 0) {
+                  best[acc] = { iso, end: Number(row.end_balance) || 0 };
+                }
+              }
+              setAccounts((prev) =>
+                prev.map((a) => (best[a.id] ? { ...a, currentBalance: best[a.id].end } : a))
+              );
+            }
           }
           
           if (analysis.summary && analysis.summary.balanceSheets > 0) {
@@ -1023,23 +996,9 @@ function App() {
             localStorage.setItem('excelBalanceInfo', JSON.stringify(balanceInfo));
           }
           
-          // Generate detailed import result
           const sum = analysis.summary || {};
-          const resultMessage = `
-Import Analysis Complete:
-- Total Sheets: ${sum.totalSheets ?? 0}
-- Transaction Sheets: ${sum.transactionSheets ?? 0}
-- Balance Sheets: ${sum.balanceSheets ?? 0}
-- New Transactions Imported: ${imported}
-- Duplicates Skipped: ${skipped}
-${(sum.balanceSheets ?? 0) > 0 ? `
-Balance Information Found:
-- Starting Balance: ${fmt(sum.startingBalance || 0)}
-- Total Income: ${fmt(sum.totalIncome)}
-- Total Expenses: ${fmt(sum.totalExpenses)}
-- Ending Balance: ${fmt(sum.endingBalance || 0)}` : ''}
-          `.trim();
-          
+          const x = sum.balanceSheets ?? 0;
+          const resultMessage = `✓ ${x} summary sheet${x === 1 ? '' : 's'} loaded, ${imported} transaction${imported === 1 ? '' : 's'} imported (${skipped} duplicate${skipped === 1 ? '' : 's'} skipped)`;
           setImportResult(resultMessage);
           
         } catch (err) {
@@ -1161,16 +1120,16 @@ Balance Information Found:
       {activeTab === 'transactions' && (
         <Transactions 
           transactions={transactions}
-          categories={categories}
           accounts={accounts}
           getColor={getColor}
           fmt={fmt}
           getFiltered={getFiltered}
           getAllMonths={getAllMonths}
-          getCatNames={getCatNames}
+          budgetData={budgetData}
           openTxnModal={openTxnModal}
           deleteTxn={deleteTxn}
           getBalanceForMonth={getBalanceForMonth}
+          calculateMonthlyBalances={calculateMonthlyBalances}
         />
       )}
 
@@ -1206,9 +1165,9 @@ Balance Information Found:
         <MonthlyStatement 
           budgetData={budgetData}
           accounts={accounts}
+          getColor={getColor}
           viewMode={viewMode}
           setViewMode={setViewMode}
-          transactions={transactions}
         />
       )}
 
@@ -1217,6 +1176,7 @@ Balance Information Found:
           triggerUpload={triggerUpload}
           importResult={importResult}
           accountsSummary={accounts.map((a) => a.label).join(', ')}
+          onClearSummaryForReimport={clearSummaryForReimport}
         />
       )}
 

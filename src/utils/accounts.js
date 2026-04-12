@@ -1,4 +1,4 @@
-/** @typedef {{ id: string, label: string, keywords: string[], chipColor: string }} BankAccount */
+/** @typedef {{ id: string, label: string, keywords: string[], chipColor: string, startingBalance?: number, currentBalance?: number }} BankAccount */
 
 export const DEFAULT_ACCOUNTS = [
   {
@@ -6,18 +6,24 @@ export const DEFAULT_ACCOUNTS = [
     label: 'Canara Bank',
     keywords: ['canara'],
     chipColor: '#0C447C',
+    startingBalance: 0,
+    currentBalance: 0,
   },
   {
     id: 'Union',
     label: 'Union Bank',
     keywords: ['union'],
     chipColor: '#085041',
+    startingBalance: 0,
+    currentBalance: 0,
   },
   {
     id: 'Other',
     label: 'HDFC Bank',
     keywords: ['other', 'hdfc'],
     chipColor: '#5C4A27',
+    startingBalance: 0,
+    currentBalance: 0,
   },
 ];
 
@@ -56,6 +62,8 @@ export function normalizeAccounts(raw) {
       label: a.label,
       keywords: [...a.keywords],
       chipColor: a.chipColor,
+      startingBalance: Number(a.startingBalance) || 0,
+      currentBalance: Number(a.currentBalance) || 0,
     }));
   }
   const out = [];
@@ -65,16 +73,26 @@ export function normalizeAccounts(raw) {
       .trim()
       .slice(0, 40);
     if (!id) continue;
-    const label = String(row.label || id).trim() || id;
+    const label = String(row.label || row.name || id).trim() || id;
     const chipColor =
       typeof row.chipColor === 'string' && /^#/.test(row.chipColor)
         ? row.chipColor
-        : '#5C4A27';
+        : typeof row.color === 'string' && /^#/.test(row.color)
+          ? row.color
+          : '#5C4A27';
+    const startingBalance = Number(row.startingBalance) || 0;
+    const currentBalRaw = row.currentBalance;
+    const currentBalance =
+      currentBalRaw !== undefined && currentBalRaw !== null && currentBalRaw !== ''
+        ? Number(currentBalRaw) || 0
+        : startingBalance;
     out.push({
       id,
       label,
       keywords: normalizeKeywordList(row.keywords, id),
       chipColor,
+      startingBalance,
+      currentBalance,
     });
   }
   return out.length ? out : normalizeAccounts(null);
