@@ -31,7 +31,43 @@ A client-side expense tracker: dashboard, transactions, categories, monthly stat
    npm run build
    ```
 
-   Serve the `build` folder with any static host (e.g. Netlify, `npx serve -s build`).
+   Serve the `build` folder with any static host (e.g. Vercel, Netlify, `npx serve -s build`).
+
+## Deploy to Vercel
+
+This project is **Create React App** (`react-scripts`). Vercel detects it and runs `npm run build` and publishes the **`build/`** folder.
+
+### Option A — Git integration (recommended)
+
+1. Push the project to **GitHub**, **GitLab**, or **Bitbucket**.
+2. Go to [vercel.com](https://vercel.com), sign in, and click **Add New… → Project**.
+3. **Import** your repository. Leave defaults:
+   - **Framework Preset:** Create React App  
+   - **Build Command:** `npm run build`  
+   - **Output Directory:** `build`
+4. **Environment variables** (only if you use Supabase): in the project → **Settings → Environment Variables**, add the same names as in `.env`:
+   - `REACT_APP_SUPABASE_URL`
+   - `REACT_APP_SUPABASE_ANON_KEY`
+   - optionally `REACT_APP_SUPABASE_ENABLED`  
+   Redeploy after saving env vars.
+5. Click **Deploy**. You’ll get a URL like `https://your-project.vercel.app`.
+
+The repo includes a small **`vercel.json`** so all routes fall back to `index.html` (useful if you add client-side URLs later).
+
+### Option B — Vercel CLI
+
+```bash
+npm i -g vercel
+cd "path/to/Expense Tracker"
+vercel
+```
+
+Follow the prompts (link to a Vercel account, confirm scope, set project name). For production: `vercel --prod`.
+
+### After deploy
+
+- Each visitor’s data stays in **their browser** (`localStorage`) unless you enabled **Supabase** and they sign in.
+- To change the public URL or add a custom domain: **Project → Settings → Domains**.
 
 ## npm scripts
 
